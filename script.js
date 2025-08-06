@@ -104,30 +104,50 @@ async function loadData() {
 
 // Получение данных пользователя
 async function fetchUserData(chatId) {
+  console.log('🔍 Загружаем данные для chatId:', chatId);
+  console.log('🔗 API URL:', CONFIG.api.baseUrl);
+  
   try {
-    const response = await fetch(`${CONFIG.api.baseUrl}?chat_id=${chatId}`, {
+    const url = `${CONFIG.api.baseUrl}?chat_id=${chatId}`;
+    console.log('📡 Отправляем запрос к:', url);
+    
+    const response = await fetch(url, {
       method: 'GET',
       headers: {
         'Content-Type': 'application/json'
-      },
-      timeout: CONFIG.api.timeout
+      }
     });
+
+    console.log('📥 Получен ответ:', response.status, response.statusText);
 
     if (!response.ok) {
       throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
 
     const data = await response.json();
+    console.log('📊 Полученные данные:', data);
     
     if (data.error) {
       throw new Error(data.error);
     }
 
+    if (!data.transactions || !data.totals) {
+      throw new Error('Неверный формат данных от API');
+    }
+
+    console.log('✅ Данные успешно загружены');
     return data;
   } catch (error) {
-    console.error('Ошибка загрузки данных:', error);
+    console.error('❌ Ошибка загрузки данных:', error);
+    console.error('🔍 Детали ошибки:', error.message);
+    
+    // Показываем уведомление об ошибке
+    if (typeof Telegram !== 'undefined' && Telegram.WebApp) {
+      Telegram.WebApp.showAlert(`Ошибка загрузки данных: ${error.message}`);
+    }
     
     // Возвращаем демо данные в случае ошибки
+    console.log('🔄 Возвращаем демо данные');
     return {
       transactions: [
         {

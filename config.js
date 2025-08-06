@@ -8,7 +8,7 @@ const CONFIG = {
   
   // Настройки API
   api: {
-    baseUrl: 'https://script.google.com/macros/s/AKfycbyMBLj5eYbjWKF-UC74NhDi619UCuE8NxXS94N_QiGEiBUom23ruH4AUzM16jW5M1ftGg/exec',
+    baseUrl: 'https://script.google.com/macros/s/AKfycbxlJgV5nCrI-7niYpcXXucPfpkVAw0AL-7dk6TZ6S8JSmN1zq6ZoJK4Y4AW0yTlXs7FvaQ/exec',
     token: '',
     timeout: 10000,
     retryAttempts: 3
@@ -94,9 +94,9 @@ const CONFIG = {
   
   // Настройки отладки
   debug: {
-    enabled: false,
-    logLevel: 'error', // error, warn, info, debug
-    showPerformance: false
+    enabled: true,
+    logLevel: 'debug', // error, warn, info, debug
+    showPerformance: true
   }
 };
 
