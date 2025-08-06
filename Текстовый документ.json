@@ -1,0 +1,1516 @@
+// =============================================
+//               CONFIGURATION
+// =============================================
+const OWNER_ID = '1042926851'; // Ваш ID Владельца
+const DEBUG_MODE = false;
+const AI_ANALYSIS_DAYS = 90;
+
+const SCRIPT_PROPS = PropertiesService.getScriptProperties();
+const TELEGRAM_TOKEN = SCRIPT_PROPS.getProperty('TELEGRAM_TOKEN');
+const GEMINI_API_KEY = SCRIPT_PROPS.getProperty('GEMINI_API_KEY');
+
+const sheetExpense = 'Расходы';
+const sheetIncome = 'Доходы';
+const settingSheet = 'Setting';
+const goalsSheet = 'Цели';
+const budgetsSheet = 'Бюджеты';
+const familiesSheet = 'Семьи';
+
+// =============================================
+//               CURRENCY CONFIGURATION
+// =============================================
+const CURRENCIES = {
+  UZS: { name: 'Сум', symbol: 'сум', rate: 1 },
+  USD: { name: 'Доллар', symbol: '$', rate: 12500 }, // Примерный курс 1 USD = 12500 UZS
+  EUR: { name: 'Евро', symbol: '€', rate: 13500 },   // Примерный курс 1 EUR = 13500 UZS
+  RUB: { name: 'Рубль', symbol: '₽', rate: 135 }     // Примерный курс 1 RUB = 135 UZS
+};
+
+const DEFAULT_CURRENCY = 'UZS';
+
+// =============================================
+//               CURRENCY HELPERS
+// =============================================
+function convertCurrency(amount, fromCurrency, toCurrency = 'UZS') {
+  if (fromCurrency === toCurrency) return amount;
+  
+  const fromRate = CURRENCIES[fromCurrency]?.rate || 1;
+  const toRate = CURRENCIES[toCurrency]?.rate || 1;
+  
+  return (amount * fromRate) / toRate;
+}
+
+function detectCurrency(text) {
+  const lowerText = text.toLowerCase();
+  
+  // Поиск символов валют
+  if (lowerText.includes('$') || lowerText.includes('доллар') || lowerText.includes('usd')) {
+    return 'USD';
+  }
+  if (lowerText.includes('€') || lowerText.includes('евро') || lowerText.includes('eur')) {
+    return 'EUR';
+  }
+  if (lowerText.includes('₽') || lowerText.includes('рубль') || lowerText.includes('rub')) {
+    return 'RUB';
+  }
+  if (lowerText.includes('сум') || lowerText.includes('uzs')) {
+    return 'UZS';
+  }
+  
+  // По умолчанию возвращаем базовую валюту
+  return DEFAULT_CURRENCY;
+}
+
+function formatCurrency(amount, currency = 'UZS') {
+  const currencyInfo = CURRENCIES[currency];
+  if (!currencyInfo) return formatMoney(amount);
+  
+  return `${formatMoney(amount)} ${currencyInfo.symbol}`;
+}
+
+function formatMultiCurrency(originalAmount, originalCurrency, convertedAmount) {
+  const currencyInfo = CURRENCIES[originalCurrency];
+  if (!currencyInfo || originalCurrency === 'UZS') {
+    return formatMoney(originalAmount);
+  }
+  
+  return `${formatMoney(originalAmount)} ${currencyInfo.symbol} (${formatMoney(convertedAmount)} сум)`;
+}
+
+// =============================================
+//               COMMANDS & KEYBOARDS
+// =============================================
+const COMMANDS = { 
+  addExpense: "✚ Добавить расход", 
+  addIncome: "💰 Добавить доход", 
+  viewReport: "📊 Посмотреть отчёт", 
+  askAnalyst: "🤖 Спросить Аналитика", 
+  settings: "⚙️ Настройки", 
+  familyMode: "👨‍👩‍👧‍👦 Семейный режим", 
+  myBudget: "💰 Мой Бюджет", 
+  myGoals: "🎯 Мои цели", 
+  setupCategories: "⚙️ Настроить категории расходов", 
+  addNewCategory: "🛠️ Добавить новую категорию расходов", 
+  updateRates: "💱 Настройка курсов валют", 
+  migrateData: "🔄 Мигрировать данные", 
+  clearBase: "🧹 Очистить базу", 
+  back: "⬅️ Назад", 
+  newGoal: "➕ Новая цель", 
+  listMyGoals: "📋 Список моих целей", 
+  backToSettings: "⬅️ Назад в Настройки", 
+  suggestBudget: "💡 Предложить бюджет", 
+  setupManually: "✏️ Настроить вручную", 
+  viewBudget: "👁️ Посмотреть бюджет", 
+  forecast: "🔮 Прогноз", 
+  detailedReport: "📋 Детальный отчёт", 
+  viewBalance: "💰 Баланс", 
+  createFamily: "🏠 Создать семью", 
+  joinFamily: "👥 Присоединиться к семье", 
+  myFamily: "👨‍👩‍👧‍👦 Моя семья", 
+  leaveFamily: "🚪 Покинуть семью",
+  // Новые команды для ручного ввода курсов валют
+  setUsdRate: "💵 Установить курс USD",
+  setEurRate: "💶 Установить курс EUR", 
+  setRubRate: "💷 Установить курс RUB",
+  viewCurrentRates: "👁️ Посмотреть текущие курсы"
+};
+const mainKeyboard = { keyboard: [[{ text: COMMANDS.addExpense }, { text: COMMANDS.addIncome }], [{ text: COMMANDS.viewReport }], [{ text: COMMANDS.askAnalyst }], [{ text: COMMANDS.settings }]], resize_keyboard: true, is_persistent: true };
+const settingsKeyboard = { keyboard: [[{ text: COMMANDS.familyMode }], [{ text: COMMANDS.myBudget }], [{ text: COMMANDS.myGoals }], [{ text: COMMANDS.setupCategories }], [{ text: COMMANDS.addNewCategory }], [{ text: COMMANDS.updateRates }], [{ text: COMMANDS.migrateData }], [{ text: COMMANDS.clearBase }], [{ text: COMMANDS.back }]], resize_keyboard: true, is_persistent: true };
+const currencyRatesKeyboard = { keyboard: [[{ text: COMMANDS.setUsdRate }, { text: COMMANDS.setEurRate }], [{ text: COMMANDS.setRubRate }], [{ text: COMMANDS.viewCurrentRates }], [{ text: COMMANDS.backToSettings }]], resize_keyboard: true, is_persistent: true };
+const goalsKeyboard = { keyboard: [[{ text: COMMANDS.newGoal }, { text: COMMANDS.listMyGoals }], [{ text: COMMANDS.backToSettings }]], resize_keyboard: true, is_persistent: true };
+const budgetKeyboard = { keyboard: [[{ text: COMMANDS.suggestBudget }, { text: COMMANDS.setupManually }], [{ text: COMMANDS.viewBudget }], [{ text: COMMANDS.backToSettings }]], resize_keyboard: true, is_persistent: true };
+const reportsKeyboard = { keyboard: [[{ text: COMMANDS.forecast }], [{ text: COMMANDS.detailedReport }, { text: COMMANDS.viewBalance }], [{ text: COMMANDS.back }]], resize_keyboard: true, is_persistent: true };
+const familyKeyboard = { keyboard: [[{ text: COMMANDS.createFamily }, { text: COMMANDS.joinFamily }], [{ text: COMMANDS.myFamily }, { text: COMMANDS.leaveFamily }], [{ text: COMMANDS.backToSettings }]], resize_keyboard: true, is_persistent: true };
+const unauthorizedKeyboard = { keyboard: [[{ text: COMMANDS.createFamily }, { text: COMMANDS.joinFamily }]], resize_keyboard: true, is_persistent: true };
+
+// =============================================
+//         TELEGRAM & AI API HELPERS
+// =============================================
+function callTelegramApi(method, payload) { 
+  if (!TELEGRAM_TOKEN) { 
+    Logger.log("TELEGRAM_TOKEN не найден!"); 
+    return; 
+  } 
+  const url = `https://api.telegram.org/bot${TELEGRAM_TOKEN}/${method}`; 
+  const options = { 
+    method: "post", 
+    contentType: "application/json", 
+    payload: JSON.stringify(payload), 
+    muteHttpExceptions: true 
+  }; 
+  try { 
+    return UrlFetchApp.fetch(url, options); 
+  } catch (e) { 
+    Logger.log(`Ошибка при вызове метода ${method}: ${e}`); 
+  } 
+}
+function callGeminiApi(prompt) { 
+  if (!GEMINI_API_KEY) { 
+    Logger.log("Ошибка: Ключ GEMINI_API_KEY не найден."); 
+    return "Сервис аналитики временно недоступен."; 
+  } 
+  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=${GEMINI_API_KEY}`; 
+  const payload = { 
+    "contents": [{ "parts": [{ "text": prompt }] }] 
+  }; 
+  const options = { 
+    'method': 'post', 
+    'contentType': 'application/json', 
+    'payload': JSON.stringify(payload), 
+    'muteHttpExceptions': true 
+  }; 
+  try { 
+    const response = UrlFetchApp.fetch(apiUrl, options); 
+    const responseCode = response.getResponseCode(); 
+    const responseText = response.getContentText(); 
+    if (responseCode !== 200) { 
+      Logger.log(`ОШИБКА: Сервер вернул код ${responseCode}. Ответ: ${responseText}`); 
+      return `Произошла ошибка на стороне сервиса аналитики (Код: ${responseCode})`; 
+    } 
+    const data = JSON.parse(responseText); 
+    if (data.candidates && data.candidates[0]?.content?.parts?.[0]?.text) { 
+      return data.candidates[0].content.parts[0].text.trim(); 
+    } else { 
+      Logger.log(`ОШИБКА: Структура ответа ИИ некорректна. Ответ: ${responseText}`); 
+      return "ИИ вернул некорректный ответ."; 
+    } 
+  } catch (e) { 
+    Logger.log("КРИТИЧЕСКАЯ ОШИБКА: " + e.toString()); 
+    return "Произошла критическая ошибка."; 
+  } 
+}
+const sendText = (chat_id, text, parse_mode, reply_markup) => { 
+  const payload = { 
+    chat_id: String(chat_id), 
+    text: text, 
+    parse_mode: parse_mode || "HTML" 
+  }; 
+  if (reply_markup) { 
+    payload.reply_markup = JSON.stringify(reply_markup); 
+  } 
+  callTelegramApi("sendMessage", payload); 
+};
+const deleteMessage = (chat_id, message_id) => callTelegramApi("deleteMessage", { chat_id: String(chat_id), message_id: message_id });
+const answerCallback = (callback_id) => callTelegramApi("answerCallbackQuery", { callback_query_id: callback_id });
+const editMessageText = (chat_id, message_id, text, parse_mode, reply_markup) => { 
+  const payload = { 
+    chat_id: String(chat_id), 
+    message_id: message_id, 
+    text: text, 
+    parse_mode: parse_mode, 
+    reply_markup: JSON.stringify(reply_markup) 
+  }; 
+  callTelegramApi("editMessageText", payload); 
+};
+function sendPhoto(chat_id, photo_url, caption) { 
+  const payload = { 
+    chat_id: String(chat_id), 
+    photo: photo_url, 
+    caption: caption, 
+    parse_mode: "Markdown" 
+  }; 
+  callTelegramApi("sendPhoto", payload); 
+}
+
+// =============================================
+//           MAIN HANDLER
+// =============================================
+function doPost(e) {
+  let contents; 
+  try { 
+    contents = JSON.parse(e.postData.contents); 
+  } catch (err) { 
+    return; 
+  }
+  const message = contents.message; 
+  const callback = contents.callback_query;
+  let chat_id, text, userFirstName;
+  if (message) { 
+    chat_id = message.chat.id; 
+    text = message.text ? message.text.trim() : ''; 
+    userFirstName = message.from ? message.from.first_name : ''; 
+  }
+  else if (callback) { 
+    chat_id = callback.message.chat.id; 
+    text = ''; 
+    userFirstName = callback.from ? callback.from.first_name : ''; 
+  }
+  else { 
+    return; 
+  }
+  chat_id = String(chat_id);
+  const familyInfo = getFamilyInfo(chat_id);
+  if (chat_id === OWNER_ID || familyInfo) {
+    const textCommandRouter = {
+      "/start": handleStart, 
+      [COMMANDS.addExpense]: (c) => sendCategoryButtons(c, 'расход'), 
+      [COMMANDS.addIncome]: (c) => sendCategoryButtons(c, 'доход'),
+      [COMMANDS.askAnalyst]: handleAskAnalyst, 
+      [COMMANDS.viewReport]: handleReportsMenu, 
+      [COMMANDS.forecast]: handleForecast,
+      [COMMANDS.detailedReport]: sendReport, 
+      [COMMANDS.viewBalance]: handleBalance, 
+      [COMMANDS.settings]: sendSettingsMenu,
+      [COMMANDS.back]: sendMainMenu, 
+      [COMMANDS.backToSettings]: sendSettingsMenu, 
+      [COMMANDS.familyMode]: handleFamilyMode,
+      [COMMANDS.myBudget]: handleMyBudget, 
+      [COMMANDS.myGoals]: handleMyGoals, 
+      [COMMANDS.setupCategories]: sendConfigureExpenseCategoryMenu,
+      [COMMANDS.addNewCategory]: handleNewCategory, 
+      [COMMANDS.clearBase]: askClearConfirmation, 
+      [COMMANDS.newGoal]: handleNewGoal,
+      [COMMANDS.listMyGoals]: handleListGoals, 
+      [COMMANDS.suggestBudget]: handleSuggestBudget, 
+      [COMMANDS.setupManually]: handleSetupBudgetManually,
+      [COMMANDS.viewBudget]: handleViewCurrentBudget, 
+      [COMMANDS.createFamily]: handleCreateFamily, 
+      [COMMANDS.joinFamily]: handleJoinFamily,
+      [COMMANDS.myFamily]: handleViewMyFamily, 
+      [COMMANDS.leaveFamily]: handleLeaveFamily
+    };
+    if (message) { 
+      const handler = textCommandRouter[text]; 
+      if (handler) { 
+        handler(chat_id); 
+      } else { 
+        handleUserInput(chat_id, text, userFirstName); 
+      } 
+    }
+    else if (callback) { 
+      handleCallbackQuery(callback); 
+    }
+  } else {
+    const unauthorizedRouter = { 
+      "/start": handleStart, 
+      [COMMANDS.createFamily]: handleCreateFamily, 
+      [COMMANDS.joinFamily]: handleJoinFamily 
+    };
+    if (message) { 
+      const handler = unauthorizedRouter[text]; 
+      if (handler) { 
+        handler(chat_id); 
+      } else { 
+        const state = PropertiesService.getUserProperties().getProperty(chat_id + "_state"); 
+        if (state === "awaiting_family_name") { 
+          createFamily(chat_id, userFirstName, text); 
+        } else if (state === "awaiting_invite_code") { 
+          joinFamily(chat_id, userFirstName, text); 
+        } else { 
+          sendText(chat_id, "🔐 Для доступа к функциям бота, пожалуйста, создайте или присоединитесь к семье.", null, unauthorizedKeyboard); 
+        } 
+      } 
+    }
+  }
+}
+
+// =============================================
+//     LEVEL 6.1 - PROACTIVE FUNCTIONS
+// =============================================
+function sendWeeklyDigest() {
+  Logger.log("--- Запуск еженедельной рассылки дайджестов ---");
+  const allUserIds = getAllUserIds();
+  Logger.log("Найдено уникальных пользователей для рассылки: " + allUserIds.length);
+  allUserIds.forEach(userId => {
+    Logger.log("Готовлю дайджест для пользователя: " + userId);
+    const dateLimit = new Date();
+    dateLimit.setDate(dateLimit.getDate() - 7);
+    const incomeSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetIncome);
+    const expenseSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetExpense);
+    const allIncomes = incomeSheet.getLastRow() > 1 ? incomeSheet.getRange(2, 1, incomeSheet.getLastRow() - 1, 5).getValues() : [];
+    const allExpenses = expenseSheet.getLastRow() > 1 ? expenseSheet.getRange(2, 1, expenseSheet.getLastRow() - 1, 5).getValues() : [];
+    const userWeeklyIncomes = allIncomes.filter(row => String(row[4]) === userId && new Date(row[0]) >= dateLimit);
+    const userWeeklyExpenses = allExpenses.filter(row => String(row[4]) === userId && new Date(row[0]) >= dateLimit);
+    const totalIncome = userWeeklyIncomes.reduce((sum, row) => sum + Number(row[2] || 0), 0);
+    const totalExpenses = userWeeklyExpenses.reduce((sum, row) => sum + Number(row[2] || 0), 0);
+    if (totalIncome === 0 && totalExpenses === 0) {
+      Logger.log("У пользователя " + userId + " нет данных за неделю. Пропускаем.");
+      return;
+    }
+    const expensesByCategory = {};
+    userWeeklyExpenses.forEach(row => {
+      const category = row[1];
+      const amount = Number(row[2] || 0);
+      expensesByCategory[category] = (expensesByCategory[category] || 0) + amount;
+    });
+    let topCategory = "Нет";
+    let maxSpent = 0;
+    for (const category in expensesByCategory) {
+      if (expensesByCategory[category] > maxSpent) {
+        maxSpent = expensesByCategory[category];
+        topCategory = category;
+      }
+    }
+    let digestMessage = "🗓️ *Еженедельный финансовый дайджест*\n\n";
+    digestMessage += `За последние 7 дней:\n\n`;
+    digestMessage += `📈 *Доходы:* ${formatMoney(totalIncome)} сум\n`;
+    digestMessage += `📉 *Расходы:* ${formatMoney(totalExpenses)} сум\n\n`;
+    digestMessage += `💸 *Самая большая категория трат:* ${topCategory} (${formatMoney(maxSpent)} сум)\n\n`;
+    digestMessage += `Хорошей следующей недели!`;
+    sendText(userId, digestMessage, "Markdown");
+    Logger.log("Дайджест успешно отправлен пользователю: " + userId);
+  });
+  Logger.log("--- Рассылка дайджестов завершена ---");
+}
+
+// =============================================
+//           HANDLERS
+// =============================================
+function handleStart(chat_id) { 
+  const userProps = PropertiesService.getUserProperties(); 
+  userProps.deleteProperty(chat_id + "_state"); 
+  userProps.deleteProperty(chat_id + "_awaiting_ai_question"); 
+  userProps.deleteProperty(chat_id + "_selected"); 
+  userProps.deleteProperty(chat_id + "_awaitingCategory"); 
+  userProps.deleteProperty(chat_id + "_temp_goal"); 
+  userProps.deleteProperty(chat_id + "_temp_budget"); 
+  userProps.deleteProperty(chat_id + "_last_transaction"); 
+  const familyInfo = getFamilyInfo(chat_id); 
+  if (chat_id === OWNER_ID || familyInfo) { 
+    sendMainMenu(chat_id); 
+  } else { 
+    sendText(chat_id, "👋 Добро пожаловать! Это бот для управления личными и семейными финансами.", null, unauthorizedKeyboard); 
+  } 
+}
+function handleNewCategory(chat_id) { 
+  PropertiesService.getUserProperties().setProperty(chat_id + "_awaitingCategory", "true"); 
+  sendText(chat_id, "Введите название новой категории:"); 
+}
+function handleAskAnalyst(chat_id) { 
+  PropertiesService.getUserProperties().setProperty(chat_id + "_awaiting_ai_question", "true"); 
+  sendText(chat_id, "💬 Задайте свой вопрос...", "Markdown"); 
+}
+function classifyExpenseWithAI(chat_id, text) {
+  // 1. Сначала жесткие правила для самых очевидных случаев
+  const lowerText = text.toLowerCase();
+  
+  // Безусловные правила (приоритетные)
+  if (/получил\s+(зп|зарплату?)/i.test(text) || 
+      /начислили\s+(зп|зарплату?)/i.test(text) ||
+      lowerText.includes("зарплата") ||
+      lowerText.includes("получил зп")) {
+    return enforceIncomeCategory("Зарплата");
+  }
+
+  // 2. Затем интеллектуальный анализ через Gemini для остальных случаев
+  const prompt = `Определи категорию операции строго по правилам:
+  
+  Если доход (зарплата, премия, возврат) → верни категорию из: ${getCategories('доход').join(', ')}
+  Если расход → верни категорию из: ${getCategories('расход').join(', ')}
+  
+  Операция: "${text}"
+  
+  Верни ТОЛЬКО название категории без пояснений.`;
+
+  const aiResponse = callGeminiApi(prompt)?.trim();
+  
+  // 3. Валидация ответа ИИ
+  return validateCategory(aiResponse) || enforceIncomeCategory("Доход");
+}
+
+// Вспомогательные функции
+function enforceIncomeCategory(category) {
+  const incomeCategories = getCategories('доход');
+  return incomeCategories.includes(category) ? category : 
+         incomeCategories.includes("Доход") ? "Доход" :
+         incomeCategories[0];
+}
+
+function validateCategory(category) {
+  const allCategories = [...getCategories('доход'), ...getCategories('расход')];
+  return allCategories.includes(category) ? category : null;
+}
+function handleUserInput(chat_id, text, userName) {
+  const userProps = PropertiesService.getUserProperties();
+  const state = userProps.getProperty(chat_id + "_state");
+
+  if (state && state.startsWith("awaiting_goal_")) {
+    handleGoalCreation(chat_id, text, state);
+    return;
+  }
+  if (state && state.startsWith("awaiting_deposit|")) {
+    const goalId = state.split("|")[1];
+    const amount = parseFloat(text.replace(',', '.'));
+    if (isNaN(amount) || amount <= 0) {
+      return sendText(chat_id, "❌ Сумма должна быть положительным числом.");
+    }
+    addDepositToGoal(goalId, amount);
+    userProps.deleteProperty(chat_id + "_state");
+    sendText(chat_id, `✅ Цель успешно пополнена на ${formatMoney(amount)} сум!`);
+    handleListGoals(chat_id);
+    return;
+  }
+  if (state && state.startsWith("awaiting_budget_limit|")) {
+    const category = state.split("|")[1];
+    const limit = parseFloat(text.replace(',', '.'));
+    if (isNaN(limit) || limit < 0) {
+      return sendText(chat_id, "❌ Лимит должен быть числом.");
+    }
+    setBudgetForCategory(chat_id, category, limit);
+    userProps.deleteProperty(chat_id + "_state");
+    sendText(chat_id, `✅ Установлен лимит для категории "${category}": ${formatMoney(limit)} сум.`);
+    handleSetupBudgetManually(chat_id);
+    return;
+  }
+
+  const awaitingAiQuestion = userProps.getProperty(chat_id + "_awaiting_ai_question");
+  if (awaitingAiQuestion === "true") {
+    try {
+      const aiAnswer = getAiFinancialAnalysis(chat_id, text);
+      sendText(chat_id, aiAnswer, "Markdown");
+    } finally {
+      userProps.deleteProperty(chat_id + "_awaiting_ai_question");
+      sendMainMenu(chat_id);
+    }
+    return;
+  }
+
+  const selectedData = userProps.getProperty(chat_id + "_selected");
+  if (selectedData) {
+    const [type, category] = selectedData.split("|");
+    const parts = text.match(/^(\d+[\.,]?\d*)\s*(.*)$/);
+    if (!parts) {
+      return sendText(chat_id, "❌ Неверный формат. `Сумма Комментарий`", "Markdown");
+    }
+    const amount = parseFloat(parts[1].replace(',', '.'));
+    const comment = parts[2] ? parts[2].trim() : '';
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const targetSheetName = type === 'доход' ? sheetIncome : sheetExpense;
+    const sheet = ss.getSheetByName(targetSheetName);
+    const rowNumber = sheet.getLastRow() + 1;
+    sheet.appendRow([new Date(), category, amount, comment, chat_id]);
+    userProps.deleteProperty(chat_id + "_selected");
+    
+    // Сохраняем информацию о последней транзакции для возможности удаления
+    const transactionInfo = {
+      sheetName: targetSheetName,
+      rowNumber: rowNumber,
+      type: type,
+      category: category,
+      amount: amount,
+      comment: comment
+    };
+    userProps.setProperty(chat_id + "_last_transaction", JSON.stringify(transactionInfo));
+    
+    const deleteKeyboard = {
+      inline_keyboard: [
+        [{ text: "🗑️ Удалить эту транзакцию", callback_data: `delete_last_transaction` }]
+      ]
+    };
+    
+    sendText(chat_id, `✅ ${type === 'доход' ? 'Доход' : 'Расход'} на ${formatMoney(amount)} сум добавлен в категорию "${category}".`, null, deleteKeyboard);
+    if (type === 'расход') {
+      checkBudgetLimit(chat_id, category);
+    }
+    sendMainMenu(chat_id);
+    return;
+  }
+
+  const awaitingCategory = userProps.getProperty(chat_id + "_awaitingCategory");
+  if (awaitingCategory === "true") {
+    const ss = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(settingSheet);
+    const targetRow = findNextEmptyRowInColumn(ss, 1);
+    ss.getRange(targetRow, 1).setValue(text);
+    userProps.deleteProperty(chat_id + "_awaitingCategory");
+    sendText(chat_id, `✅ Новая категория "${text}" добавлена.`);
+    sendSettingsMenu(chat_id);
+    return;
+  }
+
+  // Проверяем, является ли ввод доходом или расходом
+  const parts = text.match(/^(\d+[\.,]?\d*)\s*(.*)$/);
+  if (parts) {
+    const amount = parseFloat(parts[1].replace(',', '.'));
+    const comment = parts[2] ? parts[2].trim() : '';
+    if (isNaN(amount) || amount <= 0) {
+      return sendText(chat_id, "❌ Сумма должна быть положительным числом.");
+    }
+    const incomeCategories = getCategories('доход');
+    const expenseCategories = getCategories('расход');
+    const category = classifyExpenseWithAI(chat_id, comment || text);
+    if (category) {
+      const ss = SpreadsheetApp.getActiveSpreadsheet();
+      const targetSheetName = incomeCategories.includes(category) ? sheetIncome : sheetExpense;
+      const sheet = ss.getSheetByName(targetSheetName);
+      const rowNumber = sheet.getLastRow() + 1;
+      sheet.appendRow([new Date(), category, amount, comment || text, chat_id]);
+      const type = incomeCategories.includes(category) ? 'Доход' : 'Расход';
+      
+      // Сохраняем информацию о последней транзакции для возможности удаления
+      const transactionInfo = {
+        sheetName: targetSheetName,
+        rowNumber: rowNumber,
+        type: type,
+        category: category,
+        amount: amount,
+        comment: comment || text
+      };
+      userProps.setProperty(chat_id + "_last_transaction", JSON.stringify(transactionInfo));
+      
+      const deleteKeyboard = {
+        inline_keyboard: [
+          [{ text: "🗑️ Удалить эту транзакцию", callback_data: `delete_last_transaction` }]
+        ]
+      };
+      
+      sendText(chat_id, `✅ ${type} на ${formatMoney(amount)} сум добавлен в категорию "${category}".`, null, deleteKeyboard);
+      if (type === 'Расход') {
+        checkBudgetLimit(chat_id, category);
+      }
+      sendMainMenu(chat_id);
+      return;
+    }
+  }
+
+  // Если ИИ не смог классифицировать или формат неверный
+  const confirmationKeyboard = {
+    inline_keyboard: [
+      [{ text: "✅ Да, спросить аналитика", callback_data: `ask_ai|${text}` }],
+      [{ text: "⛔ Нет, выбрать категорию вручную", callback_data: `select_category|${text}` }]
+    ]
+  };
+  sendText(chat_id, `Я не распознал команду или не смог классифицировать: "*${text}*".\nХотите задать вопрос аналитику или выбрать категорию вручную?`, "Markdown", confirmationKeyboard);
+}
+function handleCallbackQuery(callback) {
+  const chat_id = String(callback.message.chat.id);
+  const message_id = callback.message.message_id;
+  const data = callback.data;
+  answerCallback(callback.id);
+
+  const action = data.split("|")[0];
+  switch(action) {
+    case 'ask_ai':
+      deleteMessage(chat_id, message_id);
+      const question = data.substring(data.indexOf('|') + 1);
+      const aiAnswer = getAiFinancialAnalysis(chat_id, question);
+      sendText(chat_id, aiAnswer, "Markdown");
+      sendMainMenu(chat_id);
+      break;
+    case 'cancel_ai_question':
+      deleteMessage(chat_id, message_id);
+      sendMainMenu(chat_id);
+      break;
+    case 'select_category':
+      deleteMessage(chat_id, message_id);
+      const text = data.substring(data.indexOf('|') + 1);
+      PropertiesService.getUserProperties().setProperty(chat_id + "_selected", `расход|${text}`);
+      sendCategoryButtons(chat_id, 'расход');
+      break;
+    case 'add_to_goal':
+      const goalId = data.split("|")[1];
+      const goalName = data.split("|")[2];
+      PropertiesService.getUserProperties().setProperty(chat_id + "_state", `awaiting_deposit|${goalId}`);
+      deleteMessage(chat_id, message_id);
+      sendText(chat_id, `Введите сумму, которую хотите отложить на цель *"${goalName}"*:`, "Markdown");
+      break;
+    case 'set_budget_limit':
+      const category = data.split("|")[1];
+      PropertiesService.getUserProperties().setProperty(chat_id + "_state", `awaiting_budget_limit|${category}`);
+      deleteMessage(chat_id, message_id);
+      sendText(chat_id, `Введите новый лимит для категории *"${category}"* (0 для удаления):`, "Markdown");
+      break;
+    case 'back_to_budget_menu':
+      deleteMessage(chat_id, message_id);
+      handleMyBudget(chat_id);
+      break;
+    case 'apply_ai_budget':
+      deleteMessage(chat_id, message_id);
+      const tempBudgetJson = PropertiesService.getUserProperties().getProperty(chat_id + "_temp_budget");
+      if (!tempBudgetJson) {
+        return sendText(chat_id, "❌ Не удалось найти предложенный бюджет.");
+      }
+      const budgetToApply = JSON.parse(tempBudgetJson);
+      for (const category in budgetToApply) {
+        setBudgetForCategory(chat_id, category, budgetToApply[category]);
+      }
+      PropertiesService.getUserProperties().deleteProperty(chat_id + "_temp_budget");
+      sendText(chat_id, "✅ Бюджет от ИИ успешно применен!");
+      handleViewCurrentBudget(chat_id);
+      break;
+    case 'decline_ai_budget':
+      deleteMessage(chat_id, message_id);
+      PropertiesService.getUserProperties().deleteProperty(chat_id + "_temp_budget");
+      sendText(chat_id, "ℹ️ Предложенный бюджет отклонен.");
+      handleMyBudget(chat_id);
+      break;
+    case 'delete_last_transaction':
+      deleteMessage(chat_id, message_id);
+      handleDeleteLastTransaction(chat_id);
+      break;
+    case 'run_report':
+      deleteMessage(chat_id, message_id);
+      const reportType = data.split("|")[1];
+      const scope = data.split("|")[2];
+      const familyInfo = getFamilyInfo(chat_id);
+      const userIds = scope === 'family' && familyInfo ? familyInfo.members.map(m => m.id) : [chat_id];
+      const scopeText = scope === 'family' && familyInfo ? `(семья: ${familyInfo.name})` : `(личный)`;
+      if (reportType === 'balance') generateBalanceReport(chat_id, userIds, scopeText);
+      if (reportType === 'detailed') generateDetailedReport(chat_id, userIds, scopeText);
+      if (reportType === 'forecast') generateForecast(chat_id, userIds, scopeText);
+      break;
+    default:
+      deleteMessage(chat_id, message_id);
+      PropertiesService.getUserProperties().setProperty(chat_id + "_selected", data);
+      sendText(chat_id, `Выбрана категория: *${data.split("|")[1]}*.\n\nВведите \`Сумма Комментарий\``, "Markdown");
+      break;
+  }
+}
+function getAiFinancialAnalysis(chat_id, question) {
+  if (DEBUG_MODE) { 
+    const debugPrompt = `Кратко и дружелюбно ответь на вопрос: "${question}"`; 
+    sendText(chat_id, "🤖 Отправляю тестовый запрос..."); 
+    return callGeminiApi(debugPrompt); 
+  }
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const expenseSheet = ss.getSheetByName(sheetExpense); 
+  const incomeSheet = ss.getSheetByName(sheetIncome);
+  if (!expenseSheet || !incomeSheet) return "Ошибка: не найдены листы 'Доходы' или 'Расходы'.";
+  const userIdsForAnalysis = [chat_id];
+  const dateLimit = new Date(); 
+  dateLimit.setDate(dateLimit.getDate() - AI_ANALYSIS_DAYS);
+  const allExpenseData = expenseSheet.getLastRow() > 1 ? expenseSheet.getRange(2, 1, expenseSheet.getLastRow() - 1, 5).getValues() : [];
+  const allIncomeData = incomeSheet.getLastRow() > 1 ? incomeSheet.getRange(2, 1, incomeSheet.getLastRow() - 1, 5).getValues() : [];
+  const recentExpenseData = allExpenseData.filter(row => userIdsForAnalysis.includes(String(row[4])) && new Date(row[0]) >= dateLimit);
+  const recentIncomeData = allIncomeData.filter(row => userIdsForAnalysis.includes(String(row[4])) && new Date(row[0]) >= dateLimit);
+  const expenseJson = recentExpenseData.map(row => ({ дата: row[0].toLocaleDateString('ru-RU'), категория: row[1], сумма: row[2], комментарий: row[3] }));
+  const incomeJson = recentIncomeData.map(row => ({ дата: row[0].toLocaleDateString('ru-RU'), категория: row[1], сумма: row[2], комментарий: row[3] }));
+  const goalsData = getUserGoals(chat_id);
+  const goalsText = goalsData.length > 0 ? JSON.stringify(goalsData.map(g => ({название: g.название, цель: g.целевая_сумма, накоплено: g.накоплено, дедлайн: g.дедлайн}))) : "У пользователя нет активных финансовых целей.";
+  const prompt = `Ты — финансовый консультант. Проанализируй данные за последние ${AI_ANALYSIS_DAYS} дней. АКТИВНЫЕ ЦЕЛИ: ${goalsText}. ДОХОДЫ: ${JSON.stringify(incomeJson)}. РАСХОДЫ: ${JSON.stringify(expenseJson)}. ВОПРОС ПОЛЬЗОВАТЕЛЯ: "${question}". Твой ответ должен быть структурирован: 1. Краткий анализ. 2. Прямой ответ. 3. Рекомендация. ВАЖНО: Отвечай очень кратко (максимум 3-4 предложения), четко и по делу. Убери всю "воду". Используй Markdown.`;
+  sendText(chat_id, "🤖 Анализирую ваши данные...");
+  return callGeminiApi(prompt);
+}
+function handleMyBudget(chat_id) { 
+  sendText(chat_id, "💰 Здесь вы можете управлять своим бюджетом на месяц.", null, budgetKeyboard); 
+}
+function handleSuggestBudget(chat_id) {
+  sendText(chat_id, "🤖 Анализирую ваши расходы за последние 3 месяца... Пожалуйста, подождите.");
+  const averageExpenses = getAverageExpenses(chat_id, 3);
+  if (Object.keys(averageExpenses).length === 0) { 
+    return sendText(chat_id, "ℹ️ У вас недостаточно данных о расходах за последние 3 месяца для анализа."); 
+  }
+  const prompt = `Ты — строгий, но справедливый финансовый консультант. Твоя задача — предложить пользователю реалистичный месячный бюджет на основе его средних трат за последние 3 месяца. Предложи лимиты по каждой категории. Для некоторых категорий предложи небольшое сокращение (на 10-15%), чтобы помочь пользователю экономить. Ответ должен быть в формате JSON. Пример JSON: {"Продукты": 2000000, "Такси": 500000} Данные о средних трат пользователя (в сумах): ${JSON.stringify(averageExpenses)} Сформируй бюджет и верни его в виде JSON объекта. Без лишних слов, только JSON.`;
+  const aiResponse = callGeminiApi(prompt);
+  try {
+    const jsonString = aiResponse.match(/\{.*\}/s)[0];
+    const suggestedBudget = JSON.parse(jsonString);
+    let report = "🤖 *ИИ проанализировал ваши траты и предлагает следующий бюджет на месяц:*\n\n";
+    for (const category in suggestedBudget) { 
+      report += ` - *${category}*: ${formatMoney(suggestedBudget[category])} сум\n`; 
+    }
+    report += "\nХотите применить этот бюджет?";
+    PropertiesService.getUserProperties().setProperty(chat_id + "_temp_budget", JSON.stringify(suggestedBudget));
+    const confirmationKeyboard = { 
+      inline_keyboard: [
+        [{ text: "✅ Да, применить", callback_data: `apply_ai_budget` }],
+        [{ text: "⛔ Нет, спасибо", callback_data: `decline_ai_budget` }]
+      ]
+    };
+    sendText(chat_id, report, "Markdown", confirmationKeyboard);
+  } catch (e) { 
+    Logger.log("Ошибка парсинга бюджета от ИИ: " + e.toString() + ". Ответ ИИ: " + aiResponse); 
+    sendText(chat_id, "❌ ИИ вернул ответ в некорректном формате. Попробуйте еще раз позже."); 
+  }
+}
+function handleSetupBudgetManually(chat_id) {
+  const expenseCategories = getCategories('расход'); 
+  const currentBudget = getBudget(chat_id);
+  if (expenseCategories.length === 0) { 
+    return sendText(chat_id, "Сначала добавьте категории расходов в Настройках."); 
+  }
+  let text = "✏️ *Настройка бюджета вручную:*\n\nНажмите на категорию, чтобы установить или изменить лимит.\n\n";
+  const buttons = [];
+  expenseCategories.forEach(cat => { 
+    const limit = currentBudget[cat] || 0; 
+    const buttonText = limit > 0 ? `${cat}: ${formatMoney(limit)} сум` : `${cat}: (не задан)`; 
+    buttons.push([{ text: buttonText, callback_data: `set_budget_limit|${cat}` }]); 
+  });
+  buttons.push([{ text: COMMANDS.backToSettings, callback_data: "back_to_budget_menu" }]);
+  sendText(chat_id, text, "Markdown", { inline_keyboard: buttons });
+}
+function handleViewCurrentBudget(chat_id) {
+  const budget = getBudget(chat_id);
+  if (Object.keys(budget).length === 0) { 
+    return sendText(chat_id, "ℹ️ У вас еще не настроен бюджет.", null, budgetKeyboard); 
+  }
+  const expenses = getExpensesForCurrentMonth([chat_id]);
+  let report = "👀 *Ваш бюджет на текущий месяц:*\n\n";
+  for (const category in budget) {
+    const limit = budget[category]; 
+    const spent = expenses[category] || 0; 
+    const remaining = limit - spent; 
+    const progress = limit > 0 ? (spent / limit) * 100 : 0;
+    report += `*${category}*:\n` + ` - Потрачено: ${formatMoney(spent)} из ${formatMoney(limit)} сум\n` + ` - Остаток: ${formatMoney(remaining)} сум (${progress.toFixed(0)}%)\n\n`;
+  }
+  sendText(chat_id, report, "Markdown", budgetKeyboard);
+}
+function checkBudgetLimit(chat_id, category) {
+  const budget = getBudget(chat_id); 
+  const limit = budget[category]; 
+  if (!limit) return;
+  const expenses = getExpensesForCurrentMonth([chat_id]); 
+  const totalSpent = expenses[category] || 0;
+  const progress = (totalSpent / limit) * 100;
+  if (progress >= 100) { 
+    sendText(chat_id, `⛔ *Превышен лимит!* Вы потратили ${progress.toFixed(0)}% бюджета по категории "${category}".`); 
+  }
+  else if (progress >= 90) { 
+    sendText(chat_id, `⚠️ *Внимание!* Вы потратили уже ${progress.toFixed(0)}% бюджета по категории "${category}".`); 
+  }
+}
+function handleMyGoals(chat_id) { 
+  sendText(chat_id, "🎯 Управление финансовыми целями.", null, goalsKeyboard); 
+}
+function handleNewGoal(chat_id) { 
+  PropertiesService.getUserProperties().setProperty(chat_id + "_state", "awaiting_goal_name"); 
+  sendText(chat_id, "Напишите название цели:", "Markdown"); 
+}
+function handleListGoals(chat_id) {
+  const goals = getUserGoals(chat_id);
+  if (goals.length === 0) { 
+    return sendText(chat_id, "У вас пока нет активных целей.", null, goalsKeyboard); 
+  }
+  sendText(chat_id, "📋 *Ваши активные цели:*", "Markdown");
+  goals.forEach(goal => {
+    const progress = goal.целевая_сумма > 0 ? (goal.накоплено / goal.целевая_сумма) * 100 : 0;
+    const report = `🎯 *${goal.название}*\n` + `   - Собрано: ${formatMoney(goal.накоплено)} из ${formatMoney(goal.целевая_сумма)} сум (${progress.toFixed(1)}%)\n` + `   - Дедлайн: ${goal.дедлайн}`;
+    const inlineKeyboard = { inline_keyboard: [[{ text: "🎯 Пополнить", callback_data: `add_to_goal|${goal.id}|${goal.название}` }]] };
+    sendText(chat_id, report, "Markdown", inlineKeyboard);
+  });
+}
+function handleGoalCreation(chat_id, text, state) {
+  const userProps = PropertiesService.getUserProperties();
+  const tempGoal = JSON.parse(userProps.getProperty(chat_id + "_temp_goal") || "{}");
+  switch(state) {
+    case "awaiting_goal_name": 
+      tempGoal.name = text; 
+      userProps.setProperty(chat_id + "_temp_goal", JSON.stringify(tempGoal)); 
+      userProps.setProperty(chat_id + "_state", "awaiting_goal_amount"); 
+      sendText(chat_id, "Введите целевую сумму (только цифры):", "Markdown"); 
+      break;
+    case "awaiting_goal_amount": 
+      const amount = parseFloat(text); 
+      if (isNaN(amount) || amount <= 0) { 
+        return sendText(chat_id, "❌ Сумма должна быть числом больше нуля."); 
+      } 
+      tempGoal.amount = amount; 
+      userProps.setProperty(chat_id + "_temp_goal", JSON.stringify(tempGoal)); 
+      userProps.setProperty(chat_id + "_state", "awaiting_goal_deadline"); 
+      sendText(chat_id, "Напишите дедлайн (ДД.ММ.ГГГГ):", "Markdown"); 
+      break;
+    case "awaiting_goal_deadline": 
+      tempGoal.deadline = text; 
+      const goalsSheetObj = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(goalsSheet); 
+      goalsSheetObj.appendRow(["G" + new Date().getTime(), chat_id, tempGoal.name, tempGoal.amount, 0, tempGoal.deadline]); 
+      userProps.deleteProperty(chat_id + "_state"); 
+      userProps.deleteProperty(chat_id + "_temp_goal"); 
+      sendText(chat_id, `✅ Новая цель "${tempGoal.name}" создана!`); 
+      handleMyGoals(chat_id); 
+      break;
+  }
+}
+function handleReportsMenu(chat_id) { 
+  sendText(chat_id, "📊 Меню отчетов и прогнозов:", null, reportsKeyboard); 
+}
+function handleForecast(chat_id) { 
+  if (chat_id === OWNER_ID) { 
+    const keyboard = { 
+      inline_keyboard: [
+        [{ text: "👤 Только мой", callback_data: "run_report|forecast|personal" }, 
+         { text: "👨‍👩‍👧‍👦 Общий семейный", callback_data: "run_report|forecast|family" }]
+      ]
+    }; 
+    sendText(chat_id, "Какой прогноз сделать?", "Markdown", keyboard); 
+  } else { 
+    generateForecast(chat_id, [chat_id], "(личный)"); 
+  } 
+}
+function handleBalance(chat_id) { 
+  if (chat_id === OWNER_ID) { 
+    const keyboard = { 
+      inline_keyboard: [
+        [{ text: "👤 Только мой", callback_data: "run_report|balance|personal" }, 
+         { text: "👨‍👩‍👧‍👦 Общий семейный", callback_data: "run_report|balance|family" }]
+      ]
+    }; 
+    sendText(chat_id, "Какой остаток показать?", "Markdown", keyboard); 
+  } else { 
+    generateBalanceReport(chat_id, [chat_id], "(личный)"); 
+  } 
+}
+function sendReport(chat_id) { 
+  if (chat_id === OWNER_ID) { 
+    const keyboard = { 
+      inline_keyboard: [
+        [{ text: "👤 Только мой", callback_data: "run_report|detailed|personal" }, 
+         { text: "👨‍👩‍👧‍👦 Общий семейный", callback_data: "run_report|detailed|family" }]
+      ]
+    }; 
+    sendText(chat_id, "Какой детализированный отчет показать?", "Markdown", keyboard); 
+  } else { 
+    generateDetailedReport(chat_id, [chat_id], "(личный)"); 
+  } 
+}
+function sendMainMenu(chat_id) { 
+  sendText(chat_id, "Главное меню:", null, mainKeyboard); 
+}
+function sendSettingsMenu(chat_id) { 
+  sendText(chat_id, "Меню настроек:", null, settingsKeyboard); 
+}
+function sendCategoryButtons(chat_id, type) { 
+  const categories = getCategories(type); 
+  if (!categories.length) return sendText(chat_id, `❌ Нет доступных категорий.`); 
+  const buttons = categories.map(c => [{ text: c, callback_data: `${type}|${c}` }]); 
+  sendText(chat_id, `Выбери категорию:`, null, { inline_keyboard: buttons }); 
+}
+function askClearConfirmation(chat_id) { 
+  const confKeyboard = { 
+    inline_keyboard: [
+      [{ text: "⚠️ Да, очистить!", callback_data: "clear|yes" }],
+      [{ text: "⛔ Нет", callback_data: "clear|no" }]
+    ]
+  }; 
+  PropertiesService.getUserProperties().setProperty(chat_id + "_awaitingClearConfirmation", "true"); 
+  sendText(chat_id, "‼️ *ВНИМАНИЕ!* ‼️\nВы уверены, что хотите очистить *ВСЕ* расходы и доходы?", "Markdown", confKeyboard); 
+}
+function sendConfigureExpenseCategoryMenu(chat_id, message_id = null) { 
+  sendText(chat_id, "Эта функция в разработке."); 
+}
+function handleFamilyMode(chat_id) { 
+  sendText(chat_id, "👨‍👩‍👧‍👦 Здесь вы можете создать свою семью или присоединиться к существующей.", null, familyKeyboard); 
+}
+function handleCreateFamily(chat_id) { 
+  const family = getFamilyInfo(chat_id); 
+  if (family && chat_id !== OWNER_ID) { 
+    return sendText(chat_id, `Вы уже состоите в семье "${family.name}".`); 
+  } 
+  PropertiesService.getUserProperties().setProperty(chat_id + "_state", "awaiting_family_name"); 
+  sendText(chat_id, "Придумайте название для вашей семьи:", "Markdown"); 
+}
+function handleJoinFamily(chat_id) { 
+  const family = getFamilyInfo(chat_id); 
+  if (family) { 
+    return sendText(chat_id, `Вы уже состоите в семье "${family.name}".`); 
+  } 
+  PropertiesService.getUserProperties().setProperty(chat_id + "_state", "awaiting_invite_code"); 
+  sendText(chat_id, "Введите код-приглашение:"); 
+}
+function handleViewMyFamily(chat_id) { 
+  const family = getFamilyInfo(chat_id); 
+  if (!family) { 
+    return sendText(chat_id, "Вы пока не состоите в семье.", null, familyKeyboard); 
+  } 
+  let message = `*Ваша семья: ${family.name}*\n\n`; 
+  message += `Код для приглашения:\n\`${family.inviteCode}\`\n\n`; 
+  message += `Участники:\n`; 
+  family.members.forEach(member => { 
+    message += `- ${member.name}\n`; 
+  }); 
+  sendText(chat_id, message, "Markdown"); 
+}
+function handleLeaveFamily(chat_id) { 
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(familiesSheet); 
+  if (sheet.getLastRow() < 2) { 
+    return sendText(chat_id, "Вы не состояли в семье.", null, familyKeyboard); 
+  } 
+  const data = sheet.getDataRange().getValues(); 
+  let familyLeft = false; 
+  for (let i = data.length - 1; i >= 1; i--) { 
+    if (data[i][2] == chat_id) { 
+      sheet.deleteRow(i + 1); 
+      familyLeft = true; 
+    } 
+  } 
+  if (familyLeft) { 
+    sendText(chat_id, "Вы успешно покинули семью.", null, familyKeyboard); 
+  } else { 
+    sendText(chat_id, "Вы не состояли в семье.", null, familyKeyboard); 
+  } 
+}
+
+function handleDeleteLastTransaction(chat_id) {
+  const userProps = PropertiesService.getUserProperties();
+  const lastTransactionJson = userProps.getProperty(chat_id + "_last_transaction");
+  
+  if (!lastTransactionJson) {
+    return sendText(chat_id, "❌ Нет информации о последней транзакции для удаления.");
+  }
+  
+  try {
+    const transactionInfo = JSON.parse(lastTransactionJson);
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const sheet = ss.getSheetByName(transactionInfo.sheetName);
+    
+    if (!sheet) {
+      return sendText(chat_id, "❌ Ошибка: лист не найден.");
+    }
+    
+    // Проверяем, что строка принадлежит этому пользователю
+    const rowData = sheet.getRange(transactionInfo.rowNumber, 1, 1, 5).getValues()[0];
+    if (String(rowData[4]) !== chat_id) {
+      return sendText(chat_id, "❌ Ошибка: транзакция не принадлежит вам.");
+    }
+    
+    // Удаляем строку
+    sheet.deleteRow(transactionInfo.rowNumber);
+    
+    // Удаляем информацию о транзакции
+    userProps.deleteProperty(chat_id + "_last_transaction");
+    
+    const typeText = transactionInfo.type === 'Доход' ? 'доход' : 'расход';
+    sendText(chat_id, `✅ ${typeText} на ${formatMoney(transactionInfo.amount)} сум в категории "${transactionInfo.category}" успешно удален.`);
+    
+  } catch (error) {
+    Logger.log("Ошибка при удалении транзакции: " + error.toString());
+    sendText(chat_id, "❌ Произошла ошибка при удалении транзакции.");
+  }
+}
+
+// =============================================
+//           SHEET HELPERS
+// =============================================
+function formatMoney(num) { 
+  return Number(num).toLocaleString('ru-RU'); 
+}
+function getCategories(type) { 
+  const ss = SpreadsheetApp.getActiveSpreadsheet(); 
+  const sheet = ss.getSheetByName(settingSheet); 
+  if (!sheet) { 
+    Logger.log(`Ошибка: Лист "${settingSheet}" не найден.`); 
+    return []; 
+  } 
+  const column = type === 'доход' ? 3 : 2; 
+  return sheet.getRange(2, column, sheet.getMaxRows() - 1, 1).getValues().flat().filter(c => c && c.toString().trim()).sort((a, b) => a.localeCompare(b, 'ru')); 
+}
+function findNextEmptyRowInColumn(sheet, columnNumber) { 
+  if (!sheet) return -1; 
+  const values = sheet.getRange(1, columnNumber, sheet.getMaxRows(), 1).getValues(); 
+  for (let i = 1; i < values.length; i++) { 
+    if (values[i][0] === '') return i + 1; 
+  } 
+  return values.length + 1; 
+}
+function getUserGoals(chat_id) { 
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(goalsSheet); 
+  if (!sheet || sheet.getLastRow() < 2) return []; 
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 6).getValues(); 
+  return data.filter(row => String(row[1]) == chat_id).map(row => ({ 
+    id: row[0], 
+    название: row[2], 
+    целевая_сумма: row[3], 
+    накоплено: row[4], 
+    дедлайн: row[5] instanceof Date ? row[5].toLocaleDateString('ru-RU') : row[5] 
+  })); 
+}
+function addDepositToGoal(goalId, amount) { 
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(goalsSheet); 
+  if (!sheet || sheet.getLastRow() < 2) return; 
+  const data = sheet.getRange(1, 1, sheet.getLastRow(), 6).getValues(); 
+  for (let i = 1; i < data.length; i++) { 
+    if (data[i][0] == goalId) { 
+      const currentAmount = data[i][4] || 0; 
+      const cellToUpdate = sheet.getRange(i + 1, 5); 
+      cellToUpdate.setValue(currentAmount + amount); 
+      return; 
+    } 
+  } 
+}
+function setBudgetForCategory(chat_id, category, limit) { 
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(budgetsSheet); 
+  const data = sheet.getDataRange().getValues(); 
+  let found = false; 
+  for (let i = 1; i < data.length; i++) { 
+    if (String(data[i][0]) == chat_id && data[i][1] == category) { 
+      if (limit > 0) { 
+        sheet.getRange(i + 1, 3).setValue(limit); 
+      } else { 
+        sheet.deleteRow(i + 1); 
+      } 
+      found = true; 
+      break; 
+    } 
+  } 
+  if (!found && limit > 0) { 
+    sheet.appendRow([chat_id, category, limit]); 
+  } 
+}
+function getBudget(chat_id) { 
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(budgetsSheet); 
+  if (!sheet || sheet.getLastRow() < 2) return {}; 
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 3).getValues(); 
+  const budget = {}; 
+  data.forEach(row => { 
+    if (String(row[0]) == chat_id) { 
+      budget[row[1]] = row[2]; 
+    } 
+  }); 
+  return budget; 
+}
+function getExpensesForCurrentMonth(userIds) { 
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetExpense); 
+  if (!sheet || sheet.getLastRow() < 2) return {}; 
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues(); 
+  const expenses = {}; 
+  const now = new Date(); 
+  data.forEach(row => { 
+    if (userIds.includes(String(row[4]))) { 
+      const expenseDate = new Date(row[0]); 
+      if (expenseDate.getMonth() === now.getMonth() && expenseDate.getFullYear() === now.getFullYear()) { 
+        const category = row[1]; 
+        const amount = row[2]; 
+        expenses[category] = (expenses[category] || 0) + amount; 
+      } 
+    } 
+  }); 
+  return expenses; 
+}
+function getAverageExpenses(chat_id, months) { 
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetExpense); 
+  if (!sheet || sheet.getLastRow() < 2) return {}; 
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues(); 
+  const expensesByMonth = {}; 
+  const dateLimit = new Date(); 
+  dateLimit.setMonth(dateLimit.getMonth() - months); 
+  data.forEach(row => { 
+    if(String(row[4]) == chat_id) { 
+      const expenseDate = new Date(row[0]); 
+      if (expenseDate >= dateLimit) { 
+        const monthYear = `${expenseDate.getFullYear()}-${expenseDate.getMonth()}`; 
+        const category = row[1]; 
+        const amount = row[2]; 
+        if (!expensesByMonth[monthYear]) { 
+          expensesByMonth[monthYear] = {}; 
+        } 
+        expensesByMonth[monthYear][category] = (expensesByMonth[monthYear][category] || 0) + amount; 
+      } 
+    } 
+  }); 
+  const numMonths = Object.keys(expensesByMonth).length; 
+  if (numMonths === 0) return {}; 
+  const totalExpenses = {}; 
+  for (const month in expensesByMonth) { 
+    for (const category in expensesByMonth[month]) { 
+      totalExpenses[category] = (totalExpenses[category] || 0) + expensesByMonth[month][category]; 
+    } 
+  } 
+  const averageExpenses = {}; 
+  for (const category in totalExpenses) { 
+    averageExpenses[category] = Math.round(totalExpenses[category] / numMonths); 
+  } 
+  return averageExpenses; 
+}
+function getIncomeForCurrentMonth(userIds) { 
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(sheetIncome); 
+  if (!sheet || sheet.getLastRow() < 2) return 0; 
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues(); 
+  let totalIncome = 0; 
+  const now = new Date(); 
+  data.forEach(row => { 
+    if (userIds.includes(String(row[4]))) { 
+      const incomeDate = new Date(row[0]); 
+      if (incomeDate.getMonth() === now.getMonth() && incomeDate.getFullYear() === now.getFullYear()) { 
+        totalIncome += Number(row[2] || 0); 
+      } 
+    } 
+  }); 
+  return totalIncome; 
+}
+function createFamily(chat_id, userName, familyName) { 
+  PropertiesService.getUserProperties().deleteProperty(chat_id + "_state"); 
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(familiesSheet); 
+  const familyId = "FAM-" + new Date().getTime(); 
+  const inviteCode = Math.random().toString(36).substring(2, 8).toUpperCase(); 
+  sheet.appendRow([familyId, inviteCode, chat_id, userName, familyName]); 
+  sendText(chat_id, `✅ Семья "${familyName}" успешно создана!`); 
+  handleViewMyFamily(chat_id); 
+}
+function joinFamily(chat_id, userName, inviteCode) { 
+  PropertiesService.getUserProperties().deleteProperty(chat_id + "_state"); 
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(familiesSheet); 
+  const data = sheet.getDataRange().getValues(); 
+  let familyFound = null; 
+  let familyName = ''; 
+  for (let i = 1; i < data.length; i++) { 
+    if (data[i][1] == inviteCode.trim().toUpperCase()) { 
+      familyFound = { id: data[i][0] }; 
+      familyName = data[i][4]; 
+      break; 
+    } 
+  } 
+  if (familyFound) { 
+    sheet.appendRow([familyFound.id, inviteCode.trim().toUpperCase(), chat_id, userName, familyName]); 
+    sendText(chat_id, `🎉 Поздравляем! Вы присоединились к семье "${familyName}".`); 
+    handleViewMyFamily(chat_id); 
+  } else { 
+    sendText(chat_id, "❌ Семья с таким кодом-приглашением не найдена."); 
+  } 
+}
+function getFamilyInfo(chat_id) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(familiesSheet);
+  if (!sheet || sheet.getLastRow() < 2) return null;
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 5).getValues();
+  let userFamilyId = null;
+  for (const row of data) { 
+    if (String(row[2]) == chat_id) { 
+      userFamilyId = row[0]; 
+      break; 
+    } 
+  }
+  if (!userFamilyId) return null;
+  const familyMembers = data.filter(row => row[0] == userFamilyId);
+  const familyName = familyMembers[0][4] || "Семья " + familyMembers[0][3];
+  return { 
+    id: userFamilyId, 
+    name: familyName, 
+    inviteCode: familyMembers[0][1], 
+    members: familyMembers.map(row => ({ id: String(row[2]), name: row[3] })) 
+  };
+}
+function getAllUserIds() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const incomeSheet = ss.getSheetByName(sheetIncome);
+  const expenseSheet = ss.getSheetByName(sheetExpense);
+  const userIds = new Set();
+  
+  if (incomeSheet && incomeSheet.getLastRow() > 1) {
+    const incomeData = incomeSheet.getRange(2, 5, incomeSheet.getLastRow() - 1, 1).getValues();
+    incomeData.forEach(row => userIds.add(String(row[0])));
+  }
+  
+  if (expenseSheet && expenseSheet.getLastRow() > 1) {
+    const expenseData = expenseSheet.getRange(2, 5, expenseSheet.getLastRow() - 1, 1).getValues();
+    expenseData.forEach(row => userIds.add(String(row[0])));
+  }
+  
+  return Array.from(userIds);
+}
+
+function getDebtsAndCredits(userIds) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(debtsSheet);
+  
+  // Если лист не существует, создаем его
+  if (!sheet) {
+    const newSheet = SpreadsheetApp.getActiveSpreadsheet().insertSheet(debtsSheet);
+    newSheet.getRange(1, 1, 1, 12).setValues([
+      ['Дата', 'ChatID', 'Тип', 'Контрагент', 'Сумма', 'Валюта', 'Сумма_UZS', 'Описание', 'Дата_возврата', 'Статус', 'Дата_погашения', 'Сумма_погашения']
+    ]);
+    return { totalDebt: 0, totalCredit: 0 }; // Новый лист - нет долгов
+  }
+  
+  if (sheet.getLastRow() < 2) {
+    return { totalDebt: 0, totalCredit: 0 }; // Нет данных
+  }
+  
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, 12).getValues();
+  let totalDebt = 0;    // Сколько пользователь должен (дебет)
+  let totalCredit = 0;  // Сколько пользователю должны (кредит)
+  
+  data.forEach(row => {
+    if (userIds.includes(String(row[1])) && row[9] === 'Активен') { // row[1] = ChatID, row[9] = Статус
+      const type = row[2];        // Дебет или Кредит
+      const amountUZS = parseFloat(row[6]) || 0; // Сумма в UZS
+      const paidAmount = parseFloat(row[11]) || 0; // Погашенная сумма
+      const remainingAmount = amountUZS - paidAmount;
+      
+      if (remainingAmount > 0) {
+        if (type === 'Дебет') {
+          totalDebt += remainingAmount;      // Я должен
+        } else if (type === 'Кредит') {
+          totalCredit += remainingAmount;    // Мне должны
+        }
+      }
+    }
+  });
+  
+  return { totalDebt, totalCredit };
+}
+
+function generateBalanceReport(chat_id, userIds, scopeText) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const incomeSheet = ss.getSheetByName(sheetIncome); 
+  const expenseSheet = ss.getSheetByName(sheetExpense);
+  const allIncomes = incomeSheet.getLastRow() > 1 ? incomeSheet.getRange(2, 1, incomeSheet.getLastRow() - 1, 5).getValues() : [];
+  const allExpenses = expenseSheet.getLastRow() > 1 ? expenseSheet.getRange(2, 1, expenseSheet.getLastRow() - 1, 5).getValues() : [];
+  const incomeTotal = allIncomes.filter(row => userIds.includes(String(row[4]))).reduce((sum, row) => sum + Number(row[2] || 0), 0);
+  const expenseTotal = allExpenses.filter(row => userIds.includes(String(row[4]))).reduce((sum, row) => sum + Number(row[2] || 0), 0);
+  
+  // Получаем данные о долгах
+  const { totalDebt, totalCredit } = getDebtsAndCredits(userIds);
+  
+  // Расчеты по вашему формату
+  const onHand = incomeTotal + totalDebt - expenseTotal; // На руках = Доходы + Долги - Расходы
+  const minusDebt = -totalDebt; // Минус долг (отрицательное значение)
+  const finalBalance = onHand + minusDebt; // Итоговый баланс = На руках + Минус долг
+  
+  let report = `📊 *Личный баланс:*\n\n`;
+  report += `💰 Доходы: ${formatMoney(incomeTotal)}\n`;
+  report += `💳 Взял в долг: ${formatMoney(totalDebt)}\n`;
+  report += `🛒 Расходы: ${formatMoney(expenseTotal)}\n\n`;
+  report += `📦 На руках: ${formatMoney(onHand)}\n`;
+  report += `📉 Минус долг: ${formatMoney(minusDebt)}\n\n`;
+  report += `✅ Итоговый баланс: ${formatMoney(finalBalance)}`;
+  
+  sendText(chat_id, report, "Markdown");
+}
+function generateDetailedReport(chat_id, userIds, scopeText) {
+  const expenses = getExpensesForCurrentMonth(userIds);
+
+  if (Object.keys(expenses).length === 0) {
+    return sendText(chat_id, `📊 *Детализированный отчёт ${scopeText}:*\n\nНет данных о расходах в этом месяце.`, "Markdown");
+  }
+
+  const sortedExpenses = Object.entries(expenses).sort(([,a],[,b]) => b-a);
+  const sortedData = Object.fromEntries(sortedExpenses);
+
+  let caption = `📊 *Структура расходов ${scopeText} за текущий месяц:*\n\n`;
+  let totalExpenses = 0;
+  sortedExpenses.forEach(([, amount]) => {
+    totalExpenses += amount;
+  });
+
+  sortedExpenses.forEach(([category, amount]) => {
+    const percentage = ((amount / totalExpenses) * 100).toFixed(1);
+    caption += `- *${category}*: ${formatMoney(amount)} сум (${percentage}%)\n`;
+  });
+  caption += `\n*Итого расходов:* ${formatMoney(totalExpenses)} сум`;
+
+  const chartUrl = generateChartUrl(sortedData);
+  sendPhoto(chat_id, chartUrl, caption);
+}
+function generateForecast(chat_id, userIds, scopeText) {
+  sendText(chat_id, `🔮 Рассчитываю прогноз ${scopeText}...`);
+  const today = new Date();
+  const daysInMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0).getDate();
+  const dayOfMonth = today.getDate();
+  if (dayOfMonth >= daysInMonth - 1) { 
+    return sendText(chat_id, "🔮 Прогноз не имеет смысла, так как месяц почти закончился."); 
+  }
+  const daysPassed = dayOfMonth; 
+  const daysRemaining = daysInMonth - dayOfMonth;
+  const incomeThisMonth = getIncomeForCurrentMonth(userIds);
+  const expensesThisMonthObj = getExpensesForCurrentMonth(userIds);
+  const expensesThisMonthTotal = Object.values(expensesThisMonthObj).reduce((a, b) => a + b, 0);
+  const currentBalanceForMonth = incomeThisMonth - expensesThisMonthTotal;
+  const averageDailySpend = daysPassed > 0 ? expensesThisMonthTotal / daysPassed : 0;
+  const projectedFutureSpend = averageDailySpend * daysRemaining;
+  const projectedFinalBalance = currentBalanceForMonth - projectedFutureSpend;
+  const prompt = `Ты — финансовый аналитик-прогнозист. На основе расчетов, сделай краткий и понятный прогноз. - Текущий баланс за месяц: ${formatMoney(currentBalanceForMonth)} сум. - Средний расход в день: ${formatMoney(averageDailySpend)} сум. - Прогнозируемые расходы до конца месяца: ${formatMoney(projectedFutureSpend)} сум. - Прогнозируемый остаток на конец месяца: ${formatMoney(projectedFinalBalance)} сум. Сформируй ответ. Если прогнозируется дефицит, дай строгий совет. Если все хорошо, похвали. ВАЖНО: Ответ должен быть очень кратким (2-3 предложения).`;
+  const forecast = callGeminiApi(prompt);
+  sendText(chat_id, forecast, "Markdown");
+}
+function generateChartUrl(data) {
+  const MAX_CATEGORIES_TO_SHOW = 7;
+  
+  if (!data || Object.keys(data).length === 0) {
+    return generateEmptyChartUrl();
+  }
+  
+  const sortedEntries = Object.entries(data).sort(([,a], [,b]) => b - a);
+  let originalLabels = sortedEntries.map(([label]) => label);
+  let originalValues = sortedEntries.map(([,value]) => value);
+  
+  let chartLabels = originalLabels;
+  let chartValues = originalValues;
+
+  if (originalLabels.length > MAX_CATEGORIES_TO_SHOW) {
+    const topLabels = originalLabels.slice(0, MAX_CATEGORIES_TO_SHOW - 1);
+    const topValues = originalValues.slice(0, MAX_CATEGORIES_TO_SHOW - 1);
+    const otherValues = originalValues.slice(MAX_CATEGORIES_TO_SHOW - 1);
+    const otherSum = otherValues.reduce((sum, current) => sum + current, 0);
+    
+    chartLabels = [...topLabels, 'Прочее'];
+    chartValues = [...topValues, otherSum];
+  }
+  
+  const totalSum = chartValues.reduce((sum, val) => sum + val, 0);
+  
+  if (totalSum === 0) {
+    return generateEmptyChartUrl();
+  }
+
+  const chartConfig = {
+    type: 'outlabeledPie',
+    data: {
+      labels: chartLabels,
+      datasets: [{
+        backgroundColor: [
+          '#FF9B27', '#FF682B', '#CB275A', '#47338C',
+          '#2764B4', '#02B1C4', '#3BBAED', '#A8E6CF'
+        ],
+        data: chartValues,
+        borderWidth: 2,
+        borderColor: '#ffffff'
+      }]
+    },
+    options: {
+      plugins: {
+        legend: false,
+        outlabels: {
+          text: '%l\n%p',
+          color: '#fcfafa',
+          stretch: 45,
+          font: {
+            resizable: true,
+            minSize: 18,
+            maxSize: 24,
+            weight: 'bold'
+          },
+          lineColor: '#666666',
+          lineWidth: 1
+        }
+      },
+      layout: {
+        padding: {
+          top: 40,
+          bottom: 40,
+          left: 40,
+          right: 40
+        }
+      }
+    }
+  };
+
+  try {
+    const finalUrl = "https://quickchart.io/chart?bkg=white&w=1400&h=800&c=" +
+                      encodeURIComponent(JSON.stringify(chartConfig));
+    
+    return finalUrl;
+    
+  } catch (error) {
+    Logger.log("Ошибка генерации outlabeled диаграммы: " + error.toString());
+    return generateFallbackChart(chartLabels, chartValues);
+  }
+}
+function generateChartUrlWithAmounts(data) {
+  const MAX_CATEGORIES_TO_SHOW = 7;
+  
+  if (!data || Object.keys(data).length === 0) {
+    return generateEmptyChartUrl();
+  }
+  
+  const sortedEntries = Object.entries(data).sort(([,a], [,b]) => b - a);
+  let originalLabels = sortedEntries.map(([label]) => label);
+  let originalValues = sortedEntries.map(([,value]) => value);
+  
+  let chartLabels = originalLabels;
+  let chartValues = originalValues;
+
+  if (originalLabels.length > MAX_CATEGORIES_TO_SHOW) {
+    const topLabels = originalLabels.slice(0, MAX_CATEGORIES_TO_SHOW - 1);
+    const topValues = originalValues.slice(0, MAX_CATEGORIES_TO_SHOW - 1);
+    const otherValues = originalValues.slice(MAX_CATEGORIES_TO_SHOW - 1);
+    const otherSum = otherValues.reduce((sum, current) => sum + current, 0);
+    
+    chartLabels = [...topLabels, 'Прочее'];
+    chartValues = [...topValues, otherSum];
+  }
+  
+  const totalSum = chartValues.reduce((sum, val) => sum + val, 0);
+  
+  if (totalSum === 0) {
+    return generateEmptyChartUrl();
+  }
+
+  const chartConfig = {
+    type: 'outlabeledPie',
+    data: {
+      labels: chartLabels,
+      datasets: [{
+        backgroundColor: [
+          '#FF9B27', '#FF682B', '#CB275A', '#47338C',
+          '#2764B4', '#02B1C4', '#3BBAED', '#A8E6CF'
+        ],
+        data: chartValues
+      }]
+    },
+    options: {
+      plugins: {
+        legend: false,
+        outlabels: {
+          text: function(context) {
+            const value = context.dataset.data[context.dataIndex];
+            const percentage = ((value / totalSum) * 100).toFixed(1);
+            const formattedValue = formatMoney(value);
+            return `${context.label}\n${formattedValue}\n(${percentage}%)`;
+          },
+          color: '#333333',
+          stretch: 30,
+          font: {
+            resizable: true,
+            minSize: 10,
+            maxSize: 13
+          }
+        }
+      }
+    }
+  };
+  
+  return "https://quickchart.io/chart?bkg=white&w=1400&h=800&c=" +
+         encodeURIComponent(JSON.stringify(chartConfig));
+}
+function generateFallbackChart(labels, values) {
+  const totalSum = values.reduce((sum, val) => sum + val, 0);
+  
+  const config = {
+    type: 'doughnut',
+    data: {
+      labels: labels,
+      datasets: [{
+        data: values,
+        backgroundColor: [
+          '#FF9B27', '#FF682B', '#CB275A', '#47338C',
+          '#2764B4', '#02B1C4', '#3BBAED'
+        ]
+      }]
+    },
+    options: {
+      plugins: {
+        legend: {
+          position: 'right'
+        },
+        datalabels: {
+          display: true,
+          formatter: function(value) {
+            const percentage = ((value / totalSum) * 100).toFixed(0);
+            return percentage + '%';
+          },
+          color: '#fff',
+          font: { weight: 'bold' }
+        }
+      }
+    }
+  };
+  
+  return "https://quickchart.io/chart?w=1200&h=600&c=" + encodeURIComponent(JSON.stringify(config));
+}
+function generateEmptyChartUrl() {
+  const emptyConfig = {
+    type: 'outlabeledPie',
+    data: {
+      labels: ['Нет данных'],
+      datasets: [{
+        data: [1],
+        backgroundColor: ['#E0E0E0']
+      }]
+    },
+    options: {
+      plugins: {
+        legend: false,
+        outlabels: {
+          text: 'Нет данных\nо расходах',
+          color: '#666666'
+        }
+      }
+    }
+  };
+  
+  return "https://quickchart.io/chart?bkg=white&w=1200&h=600&c=" +
+         encodeURIComponent(JSON.stringify(emptyConfig));
+}
+
+// =============================================
+//           DO GET
+// =============================================
+function doGet() { 
+  return ContentService.createTextOutput("Telegram Bot Script is active."); 
+}
