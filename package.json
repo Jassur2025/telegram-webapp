@@ -1,0 +1,26 @@
+{
+  "name": "telegram-finance-mini-app",
+  "version": "1.0.0",
+  "description": "Telegram Mini App для финансового отчета",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "deploy": "echo 'Deploy to your hosting service'"
+  },
+  "keywords": [
+    "telegram",
+    "mini-app",
+    "finance",
+    "web-app"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/your-username/telegram-finance-mini-app.git"
+  },
+  "bugs": {
+    "url": "https://github.com/your-username/telegram-finance-mini-app/issues"
+  },
+  "homepage": "https://github.com/your-username/telegram-finance-mini-app#readme"
+} 

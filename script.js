@@ -102,66 +102,89 @@ async function loadData() {
   }
 }
 
-// Получение данных пользователя (демо данные)
+// Получение данных пользователя
 async function fetchUserData(chatId) {
-  // В реальном приложении здесь будет запрос к вашему API
-  // Пока используем демо данные
-  return {
-    transactions: [
-      {
-        id: 1,
-        date: '2024-01-15',
-        category: 'Продукты',
-        amount: 25000,
-        type: 'expense',
-        comment: 'Magnum'
+  try {
+    const response = await fetch(`${CONFIG.api.baseUrl}?chat_id=${chatId}`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json'
       },
-      {
-        id: 2,
-        date: '2024-01-14',
-        category: 'Зарплата',
-        amount: 500000,
-        type: 'income',
-        comment: 'Зарплата за январь'
-      },
-      {
-        id: 3,
-        date: '2024-01-13',
-        category: 'Транспорт',
-        amount: 15000,
-        type: 'expense',
-        comment: 'Такси'
-      },
-      {
-        id: 4,
-        date: '2024-01-12',
-        category: 'Развлечения',
-        amount: 80000,
-        type: 'expense',
-        comment: 'Кино'
-      },
-      {
-        id: 5,
-        date: '2024-01-11',
-        category: 'Продажа',
-        amount: 150000,
-        type: 'income',
-        comment: 'Продажа вещей'
-      }
-    ],
-    categories: {
-      'Продукты': { amount: 25000, percentage: 20 },
-      'Транспорт': { amount: 15000, percentage: 12 },
-      'Развлечения': { amount: 80000, percentage: 64 },
-      'Зарплата': { amount: 500000, percentage: 100 },
-      'Продажа': { amount: 150000, percentage: 100 }
-    },
-    totals: {
-      income: 650000,
-      expense: 120000,
-      balance: 530000
+      timeout: CONFIG.api.timeout
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
     }
-  };
+
+    const data = await response.json();
+    
+    if (data.error) {
+      throw new Error(data.error);
+    }
+
+    return data;
+  } catch (error) {
+    console.error('Ошибка загрузки данных:', error);
+    
+    // Возвращаем демо данные в случае ошибки
+    return {
+      transactions: [
+        {
+          id: 1,
+          date: '2024-01-15',
+          category: 'Продукты',
+          amount: 25000,
+          type: 'expense',
+          comment: 'Magnum'
+        },
+        {
+          id: 2,
+          date: '2024-01-14',
+          category: 'Зарплата',
+          amount: 500000,
+          type: 'income',
+          comment: 'Зарплата за январь'
+        },
+        {
+          id: 3,
+          date: '2024-01-13',
+          category: 'Транспорт',
+          amount: 15000,
+          type: 'expense',
+          comment: 'Такси'
+        },
+        {
+          id: 4,
+          date: '2024-01-12',
+          category: 'Развлечения',
+          amount: 80000,
+          type: 'expense',
+          comment: 'Кино'
+        },
+        {
+          id: 5,
+          date: '2024-01-11',
+          category: 'Продажа',
+          amount: 150000,
+          type: 'income',
+          comment: 'Продажа вещей'
+        }
+      ],
+      categories: {
+        'Продукты': { amount: 25000, percentage: 20 },
+        'Транспорт': { amount: 15000, percentage: 12 },
+        'Развлечения': { amount: 80000, percentage: 64 },
+        'Зарплата': { amount: 500000, percentage: 100 },
+        'Продажа': { amount: 150000, percentage: 100 }
+      },
+      totals: {
+        income: 650000,
+        expense: 120000,
+        balance: 530000
+      }
+    };
+  }
 }
 
 // Обновление баланса

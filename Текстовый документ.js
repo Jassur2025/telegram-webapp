@@ -1654,7 +1654,7 @@ function handleCallbackQuery(callback) {
       break;
     case 'set_lang_uz':
       PropertiesService.getUserProperties().setProperty(chat_id + "_lang", 'uz');
-      editMessageText(chat_id, message_id, 'Til o‘rnatildi: O‘zbek 🇺🇿');
+      editMessageText(chat_id, message_id, "Til o'rnatildi: O'zbek 🇺🇿");
       sendMainMenu(chat_id);
       break;
     case 'ask_ai':
@@ -2670,7 +2670,14 @@ function generateBalanceReport(chat_id, userIds, scopeText) {
   report += `📉 Минус долг: ${formatMoney(minusDebt)}\n\n`;
   report += `✅ Итоговый баланс: ${formatMoney(finalBalance)}`;
   
-  sendText(chat_id, report, "Markdown");
+  // Добавляем кнопку для открытия мини-приложения
+  const keyboard = {
+    inline_keyboard: [
+      [{ text: "📊 Открыть детальный отчёт", web_app: { url: `https://ваш-домен.com/index.html?chat_id=${chat_id}` } }]
+    ]
+  };
+  
+  sendText(chat_id, report, "Markdown", keyboard);
 }
 
 function handleCheckOverdue(chat_id) {
@@ -3185,8 +3192,24 @@ function generateEmptyChartUrl() {
 // =============================================
 //           DO GET
 // =============================================
-function doGet() { 
-  return ContentService.createTextOutput("Telegram Bot Script is active."); 
+function doGet(e) {
+  const chatId = e.parameter.chat_id;
+
+  if (!chatId) {
+    return ContentService.createTextOutput(JSON.stringify({
+      error: 'Chat ID required'
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+
+  try {
+    const data = generateReportData(chatId);
+    return ContentService.createTextOutput(JSON.stringify(data))
+      .setMimeType(ContentService.MimeType.JSON);
+  } catch (error) {
+    return ContentService.createTextOutput(JSON.stringify({
+      error: error.toString()
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
 }
 
 // =============================================
@@ -3848,10 +3871,94 @@ function sendDailyDebtReminders() {
 function createDebtRemindersSchedule() {
   // Создаем триггер для ежедневных напоминаний в 9:00
   ScriptApp.newTrigger('sendDailyDebtReminders')
-    .timeBased() 
+    .timeBased()
     .everyDays(1)
     .atHour(9)
     .create();
     
   Logger.log("Создан триггер для ежедневных напоминаний о долгах в 9:00");
+}
+
+// =============================================
+//               MINI-APP API
+// =============================================
+function generateReportData(chatId) {
+  // Получаем данные из Google Sheets
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const expenseSheet = ss.getSheetByName('Расходы');
+  const incomeSheet = ss.getSheetByName('Доходы');
+
+  const transactions = [];
+  const categories = {};
+  let totalIncome = 0;
+  let totalExpense = 0;
+
+  // Обработка доходов
+  if (incomeSheet && incomeSheet.getLastRow() > 1) {
+    const incomeData = incomeSheet.getRange(2, 1, incomeSheet.getLastRow() - 1, 7).getValues();
+    incomeData.forEach(row => {
+      if (String(row[4]) === chatId) { // row[4] = ChatID
+        const transaction = {
+          id: `income_${Date.now()}_${Math.random()}`,
+          date: row[0].toISOString().split('T')[0],
+          category: getCategoryLabel(row[1], 'ru'),
+          amount: parseFloat(row[2]) || 0,
+          type: 'income',
+          comment: row[3] || ''
+        };
+        transactions.push(transaction);
+        totalIncome += transaction.amount;
+      }
+    });
+  }
+
+  // Обработка расходов
+  if (expenseSheet && expenseSheet.getLastRow() > 1) {
+    const expenseData = expenseSheet.getRange(2, 1, expenseSheet.getLastRow() - 1, 7).getValues();
+    expenseData.forEach(row => {
+      if (String(row[4]) === chatId) { // row[4] = ChatID
+        const transaction = {
+          id: `expense_${Date.now()}_${Math.random()}`,
+          date: row[0].toISOString().split('T')[0],
+          category: getCategoryLabel(row[1], 'ru'),
+          amount: parseFloat(row[2]) || 0,
+          type: 'expense',
+          comment: row[3] || ''
+        };
+        transactions.push(transaction);
+        totalExpense += transaction.amount;
+      }
+    });
+  }
+
+  // Сортировка по дате
+  transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  // Группировка по категориям
+  transactions.forEach(transaction => {
+    if (!categories[transaction.category]) {
+      categories[transaction.category] = {
+        amount: 0,
+        percentage: 0
+      };
+    }
+    categories[transaction.category].amount += transaction.amount;
+  });
+
+  // Вычисление процентов
+  Object.keys(categories).forEach(category => {
+    const total = categories[category].amount;
+    const percentage = total > 0 ? (total / (totalIncome + totalExpense)) * 100 : 0;
+    categories[category].percentage = Math.round(percentage * 10) / 10;
+  });
+
+  return {
+    transactions: transactions,
+    categories: categories,
+    totals: {
+      income: totalIncome,
+      expense: totalExpense,
+      balance: totalIncome - totalExpense
+    }
+  };
 }
