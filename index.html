@@ -6,38 +6,89 @@
   <title>Финансовый Отчёт</title>
   <link rel="stylesheet" href="style.css">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="config.js"></script>
+  <script src="api-integration.js"></script>
 </head>
 <body>
-  <h1>Финансовый отчёт</h1>
-  <table id="reportTable">
-    <thead>
-      <tr>
-        <th>Дата</th>
-        <th>Категория</th>
-        <th>Сумма</th>
-        <th>Комментарий</th>
-      </tr>
-    </thead>
-    <tbody>
-      <tr>
-        <td>01.08.2025</td>
-        <td>Продукты</td>
-        <td>12000₸</td>
-        <td>Magnum</td>
-      </tr>
-      <tr>
-        <td>02.08.2025</td>
-        <td>Транспорт</td>
-        <td>2500₸</td>
-        <td>Такси</td>
-      </tr>
-    </tbody>
-  </table>
+  <div class="container">
+    <header class="header">
+      <h1>💰 Финансовый отчёт</h1>
+      <div class="balance-card">
+        <div class="balance-item">
+          <span class="balance-label">Доходы</span>
+          <span class="balance-amount income" id="totalIncome">0 ₸</span>
+        </div>
+        <div class="balance-item">
+          <span class="balance-label">Расходы</span>
+          <span class="balance-amount expense" id="totalExpense">0 ₸</span>
+        </div>
+        <div class="balance-item">
+          <span class="balance-label">Баланс</span>
+          <span class="balance-amount" id="totalBalance">0 ₸</span>
+        </div>
+      </div>
+    </header>
 
-  <div class="buttons">
-    <button onclick="refreshData()">Обновить</button>
-    <button onclick="downloadPDF()">Скачать PDF</button>
-    <button onclick="Telegram.WebApp.close()">Назад в Telegram</button>
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="transactions">Транзакции</button>
+      <button class="tab-btn" data-tab="charts">Графики</button>
+      <button class="tab-btn" data-tab="categories">Категории</button>
+    </div>
+
+    <div class="tab-content">
+      <!-- Транзакции -->
+      <div class="tab-pane active" id="transactions">
+        <div class="filters">
+          <select id="periodFilter" class="filter-select">
+            <option value="current">Текущий месяц</option>
+            <option value="last">Прошлый месяц</option>
+            <option value="week">Неделя</option>
+          </select>
+          <select id="typeFilter" class="filter-select">
+            <option value="all">Все</option>
+            <option value="income">Доходы</option>
+            <option value="expense">Расходы</option>
+          </select>
+        </div>
+        
+        <div class="transactions-list" id="transactionsList">
+          <!-- Транзакции будут загружены через JavaScript -->
+        </div>
+      </div>
+
+      <!-- Графики -->
+      <div class="tab-pane" id="charts">
+        <div class="chart-container">
+          <canvas id="expenseChart"></canvas>
+        </div>
+        <div class="chart-container">
+          <canvas id="incomeChart"></canvas>
+        </div>
+      </div>
+
+      <!-- Категории -->
+      <div class="tab-pane" id="categories">
+        <div class="categories-grid" id="categoriesGrid">
+          <!-- Категории будут загружены через JavaScript -->
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="action-btn primary" onclick="refreshData()">
+        <span class="btn-icon">🔄</span>
+        Обновить
+      </button>
+      <button class="action-btn" onclick="downloadReport()">
+        <span class="btn-icon">📄</span>
+        Скачать отчёт
+      </button>
+      <button class="action-btn" onclick="Telegram.WebApp.close()">
+        <span class="btn-icon">⬅️</span>
+        Назад
+      </button>
+    </div>
   </div>
 
   <script src="script.js"></script>
