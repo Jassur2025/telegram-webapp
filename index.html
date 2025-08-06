@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Финансовый Отчёт</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <h1>Финансовый отчёт</h1>
+  <table id="reportTable">
+    <thead>
+      <tr>
+        <th>Дата</th>
+        <th>Категория</th>
+        <th>Сумма</th>
+        <th>Комментарий</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td>01.08.2025</td>
+        <td>Продукты</td>
+        <td>12000₸</td>
+        <td>Magnum</td>
+      </tr>
+      <tr>
+        <td>02.08.2025</td>
+        <td>Транспорт</td>
+        <td>2500₸</td>
+        <td>Такси</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="buttons">
+    <button onclick="refreshData()">Обновить</button>
+    <button onclick="downloadPDF()">Скачать PDF</button>
+    <button onclick="Telegram.WebApp.close()">Назад в Telegram</button>
+  </div>
+
+  <script src="script.js"></script>
+</body>
+</html>
