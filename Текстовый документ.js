@@ -2673,7 +2673,7 @@ function generateBalanceReport(chat_id, userIds, scopeText) {
   // Добавляем кнопку для открытия мини-приложения
   const keyboard = {
     inline_keyboard: [
-      [{ text: "📊 Открыть детальный отчёт", web_app: { url: `https://ваш-домен.com/index.html?chat_id=${chat_id}` } }]
+      [{ text: "📊 Открыть детальный отчёт", web_app: { url: `https://telegram-webapp-7b93.onrender.com/index.html?chat_id=${chat_id}` } }]
     ]
   };
   
