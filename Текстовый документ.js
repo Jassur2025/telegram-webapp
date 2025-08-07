@@ -3890,6 +3890,8 @@ function createDebtRemindersSchedule() {
 //               MINI-APP API
 // =============================================
 function generateReportData(chatId) {
+  Logger.log(`generateReportData: chatId=${chatId}`);
+  
   // Получаем данные из Google Sheets
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const expenseSheet = ss.getSheetByName('Расходы');
@@ -3902,43 +3904,117 @@ function generateReportData(chatId) {
 
   // Обработка доходов
   if (incomeSheet && incomeSheet.getLastRow() > 1) {
+    Logger.log(`Обрабатываем доходы: ${incomeSheet.getLastRow() - 1} строк`);
     const incomeData = incomeSheet.getRange(2, 1, incomeSheet.getLastRow() - 1, 7).getValues();
-    incomeData.forEach(row => {
-      if (String(row[4]) === chatId) { // row[4] = ChatID
+    
+    incomeData.forEach((row, index) => {
+      const chatIdInRow = String(row[4]); // row[4] = ChatID
+      Logger.log(`Строка ${index + 2}: chatId=${chatIdInRow}, ищем=${chatId}`);
+      
+      if (chatIdInRow === chatId) {
+        const date = row[0];
+        const categoryId = row[1];
+        const amount = parseFloat(row[2]) || 0;
+        const comment = row[3] || '';
+        
+        // Форматируем дату
+        let formattedDate;
+        if (date instanceof Date) {
+          formattedDate = date.toISOString().split('T')[0];
+        } else if (typeof date === 'string') {
+          // Если дата в формате DD.MM.YYYY
+          if (date.includes('.')) {
+            const [day, month, year] = date.split('.');
+            formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+          } else {
+            formattedDate = date;
+          }
+        } else {
+          formattedDate = new Date().toISOString().split('T')[0];
+        }
+        
+        // Получаем название категории
+        let categoryName = categoryId;
+        try {
+          categoryName = getCategoryLabel(categoryId, 'ru');
+        } catch (error) {
+          Logger.log(`Ошибка получения названия категории для ID ${categoryId}: ${error.message}`);
+          categoryName = categoryId || 'Доход';
+        }
+        
         const transaction = {
           id: `income_${Date.now()}_${Math.random()}`,
-          date: row[0].toISOString().split('T')[0],
-          category: getCategoryLabel(row[1], 'ru'),
-          amount: parseFloat(row[2]) || 0,
+          date: formattedDate,
+          category: categoryName,
+          amount: amount,
           type: 'income',
-          comment: row[3] || ''
+          comment: comment
         };
+        
+        Logger.log(`Добавлен доход: ${JSON.stringify(transaction)}`);
         transactions.push(transaction);
-        totalIncome += transaction.amount;
+        totalIncome += amount;
       }
     });
   }
 
   // Обработка расходов
   if (expenseSheet && expenseSheet.getLastRow() > 1) {
+    Logger.log(`Обрабатываем расходы: ${expenseSheet.getLastRow() - 1} строк`);
     const expenseData = expenseSheet.getRange(2, 1, expenseSheet.getLastRow() - 1, 7).getValues();
-    expenseData.forEach(row => {
-      if (String(row[4]) === chatId) { // row[4] = ChatID
+    
+    expenseData.forEach((row, index) => {
+      const chatIdInRow = String(row[4]); // row[4] = ChatID
+      Logger.log(`Строка ${index + 2}: chatId=${chatIdInRow}, ищем=${chatId}`);
+      
+      if (chatIdInRow === chatId) {
+        const date = row[0];
+        const categoryId = row[1];
+        const amount = parseFloat(row[2]) || 0;
+        const comment = row[3] || '';
+        
+        // Форматируем дату
+        let formattedDate;
+        if (date instanceof Date) {
+          formattedDate = date.toISOString().split('T')[0];
+        } else if (typeof date === 'string') {
+          // Если дата в формате DD.MM.YYYY
+          if (date.includes('.')) {
+            const [day, month, year] = date.split('.');
+            formattedDate = `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`;
+          } else {
+            formattedDate = date;
+          }
+        } else {
+          formattedDate = new Date().toISOString().split('T')[0];
+        }
+        
+        // Получаем название категории
+        let categoryName = categoryId;
+        try {
+          categoryName = getCategoryLabel(categoryId, 'ru');
+        } catch (error) {
+          Logger.log(`Ошибка получения названия категории для ID ${categoryId}: ${error.message}`);
+          categoryName = categoryId || 'Расход';
+        }
+        
         const transaction = {
           id: `expense_${Date.now()}_${Math.random()}`,
-          date: row[0].toISOString().split('T')[0],
-          category: getCategoryLabel(row[1], 'ru'),
-          amount: parseFloat(row[2]) || 0,
+          date: formattedDate,
+          category: categoryName,
+          amount: amount,
           type: 'expense',
-          comment: row[3] || ''
+          comment: comment
         };
+        
+        Logger.log(`Добавлен расход: ${JSON.stringify(transaction)}`);
         transactions.push(transaction);
-        totalExpense += transaction.amount;
+        totalExpense += amount;
       }
     });
   }
 
-  // Сортировка по дате
+  // Сортировка по дате (новые сначала)
   transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
 
   // Группировка по категориям
@@ -3959,7 +4035,7 @@ function generateReportData(chatId) {
     categories[category].percentage = Math.round(percentage * 10) / 10;
   });
 
-  return {
+  const result = {
     transactions: transactions,
     categories: categories,
     totals: {
@@ -3968,6 +4044,9 @@ function generateReportData(chatId) {
       balance: totalIncome - totalExpense
     }
   };
+
+  Logger.log(`Результат: ${transactions.length} транзакций, доходы: ${totalIncome}, расходы: ${totalExpense}`);
+  return result;
 }
 
 // =============================================
@@ -4189,4 +4268,116 @@ function generateCategoryStats(chatId, period) {
   });
 
   return categories;
+}
+
+// =============================================
+//               TEST FUNCTIONS
+// =============================================
+function testGoogleSheetsData(chatId = '1042926851') {
+  Logger.log(`=== ТЕСТ ДАННЫХ GOOGLE SHEETS ===`);
+  Logger.log(`Chat ID: ${chatId}`);
+  
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const expenseSheet = ss.getSheetByName('Расходы');
+  const incomeSheet = ss.getSheetByName('Доходы');
+  const settingSheet = ss.getSheetByName('Setting');
+  
+  // Проверяем лист доходов
+  if (incomeSheet) {
+    Logger.log(`\n=== ЛИСТ ДОХОДОВ ===`);
+    Logger.log(`Всего строк: ${incomeSheet.getLastRow()}`);
+    
+    if (incomeSheet.getLastRow() > 1) {
+      const incomeData = incomeSheet.getRange(2, 1, incomeSheet.getLastRow() - 1, 7).getValues();
+      Logger.log(`Найдено ${incomeData.length} строк данных`);
+      
+      let userIncomeCount = 0;
+      incomeData.forEach((row, index) => {
+        const chatIdInRow = String(row[4]);
+        if (chatIdInRow === chatId) {
+          userIncomeCount++;
+          Logger.log(`Строка ${index + 2}: Дата=${row[0]}, Категория=${row[1]}, Сумма=${row[2]}, Комментарий=${row[3]}, ChatID=${row[4]}`);
+        }
+      });
+      Logger.log(`Найдено ${userIncomeCount} доходов для пользователя ${chatId}`);
+    }
+  } else {
+    Logger.log(`Лист 'Доходы' не найден!`);
+  }
+  
+  // Проверяем лист расходов
+  if (expenseSheet) {
+    Logger.log(`\n=== ЛИСТ РАСХОДОВ ===`);
+    Logger.log(`Всего строк: ${expenseSheet.getLastRow()}`);
+    
+    if (expenseSheet.getLastRow() > 1) {
+      const expenseData = expenseSheet.getRange(2, 1, expenseSheet.getLastRow() - 1, 7).getValues();
+      Logger.log(`Найдено ${expenseData.length} строк данных`);
+      
+      let userExpenseCount = 0;
+      expenseData.forEach((row, index) => {
+        const chatIdInRow = String(row[4]);
+        if (chatIdInRow === chatId) {
+          userExpenseCount++;
+          Logger.log(`Строка ${index + 2}: Дата=${row[0]}, Категория=${row[1]}, Сумма=${row[2]}, Комментарий=${row[3]}, ChatID=${row[4]}`);
+        }
+      });
+      Logger.log(`Найдено ${userExpenseCount} расходов для пользователя ${chatId}`);
+    }
+  } else {
+    Logger.log(`Лист 'Расходы' не найден!`);
+  }
+  
+  // Проверяем лист настроек (категории)
+  if (settingSheet) {
+    Logger.log(`\n=== ЛИСТ НАСТРОЕК (КАТЕГОРИИ) ===`);
+    Logger.log(`Всего строк: ${settingSheet.getLastRow()}`);
+    
+    if (settingSheet.getLastRow() > 1) {
+      const settingData = settingSheet.getRange(2, 1, settingSheet.getLastRow() - 1, 6).getValues();
+      Logger.log(`Найдено ${settingData.length} строк категорий`);
+      
+      settingData.forEach((row, index) => {
+        Logger.log(`Строка ${index + 2}: РасходID=${row[0]}, РасходRU=${row[1]}, РасходUZ=${row[2]}, ДоходID=${row[3]}, ДоходRU=${row[4]}, ДоходUZ=${row[5]}`);
+      });
+    }
+  } else {
+    Logger.log(`Лист 'Setting' не найден!`);
+  }
+  
+  // Тестируем функцию generateReportData
+  Logger.log(`\n=== ТЕСТ generateReportData ===`);
+  try {
+    const reportData = generateReportData(chatId);
+    Logger.log(`Результат: ${reportData.transactions.length} транзакций`);
+    Logger.log(`Доходы: ${reportData.totals.income}`);
+    Logger.log(`Расходы: ${reportData.totals.expense}`);
+    Logger.log(`Баланс: ${reportData.totals.balance}`);
+    
+    if (reportData.transactions.length > 0) {
+      Logger.log(`Первая транзакция: ${JSON.stringify(reportData.transactions[0])}`);
+    }
+  } catch (error) {
+    Logger.log(`Ошибка в generateReportData: ${error.message}`);
+  }
+  
+  Logger.log(`=== КОНЕЦ ТЕСТА ===`);
+}
+
+function testCategoryDict() {
+  Logger.log(`=== ТЕСТ СЛОВАРЯ КАТЕГОРИЙ ===`);
+  
+  try {
+    const dict = loadCategoryDict();
+    Logger.log(`Загружено категорий: ${Object.keys(dict.byId).length}`);
+    
+    Object.keys(dict.byId).forEach(id => {
+      const category = dict.byId[id];
+      Logger.log(`ID: ${id}, RU: ${category.ru}, UZ: ${category.uz}, Type: ${category.type}`);
+    });
+  } catch (error) {
+    Logger.log(`Ошибка загрузки словаря категорий: ${error.message}`);
+  }
+  
+  Logger.log(`=== КОНЕЦ ТЕСТА КАТЕГОРИЙ ===`);
 }
