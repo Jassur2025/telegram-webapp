@@ -641,8 +641,15 @@ function doPost(e) {
   try { 
     contents = JSON.parse(e.postData.contents); 
   } catch (err) { 
-    return; 
+    return ContentService.createTextOutput(JSON.stringify({ error: 'Invalid JSON' }))
+      .setMimeType(ContentService.MimeType.JSON); 
   }
+  
+  // Проверяем, является ли это запросом от веб-приложения
+  if (contents.action) {
+    return handleWebAppRequest(contents);
+  }
+  
   const message = contents.message; 
   // Если пришло голосовое сообщение – распознаём и выходим
   if (message && message.voice) {
@@ -3961,4 +3968,225 @@ function generateReportData(chatId) {
       balance: totalIncome - totalExpense
     }
   };
+}
+
+// =============================================
+//               WEB APP API HANDLER
+// =============================================
+function handleWebAppRequest(contents) {
+  try {
+    const action = contents.action;
+    const chat_id = contents.chat_id;
+    
+    Logger.log(`WebApp request: action=${action}, chat_id=${chat_id}`);
+    
+    // Проверяем авторизацию пользователя
+    if (!chat_id) {
+      return ContentService.createTextOutput(JSON.stringify({ 
+        error: 'Chat ID is required' 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    // Проверяем, что пользователь имеет доступ
+    const familyInfo = getFamilyInfo(chat_id);
+    if (chat_id !== OWNER_ID && !familyInfo) {
+      return ContentService.createTextOutput(JSON.stringify({ 
+        error: 'Unauthorized access' 
+      })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+    switch (action) {
+      case 'getUserData':
+        const userData = generateReportData(chat_id);
+        return ContentService.createTextOutput(JSON.stringify(userData))
+          .setMimeType(ContentService.MimeType.JSON);
+        
+      case 'getPeriodData':
+        const startDate = contents.startDate;
+        const endDate = contents.endDate;
+        const periodData = generateReportDataForPeriod(chat_id, startDate, endDate);
+        return ContentService.createTextOutput(JSON.stringify(periodData))
+          .setMimeType(ContentService.MimeType.JSON);
+        
+      case 'getCategoryStats':
+        const period = contents.period || 'current_month';
+        const categoryStats = generateCategoryStats(chat_id, period);
+        return ContentService.createTextOutput(JSON.stringify({ categories: categoryStats }))
+          .setMimeType(ContentService.MimeType.JSON);
+        
+      case 'checkAuth':
+        return ContentService.createTextOutput(JSON.stringify({ 
+          authorized: true 
+        })).setMimeType(ContentService.MimeType.JSON);
+        
+      case 'exportToPDF':
+        // Пока возвращаем заглушку для PDF экспорта
+        return ContentService.createTextOutput(JSON.stringify({ 
+          message: 'PDF export not implemented yet' 
+        })).setMimeType(ContentService.MimeType.JSON);
+        
+      default:
+        return ContentService.createTextOutput(JSON.stringify({ 
+          error: 'Unknown action' 
+        })).setMimeType(ContentService.MimeType.JSON);
+    }
+    
+  } catch (error) {
+    Logger.log(`Error in handleWebAppRequest: ${error.message}`);
+    return ContentService.createTextOutput(JSON.stringify({ 
+      error: 'Internal server error' 
+    })).setMimeType(ContentService.MimeType.JSON);
+  }
+}
+
+// Функция для генерации данных за определенный период
+function generateReportDataForPeriod(chatId, startDate, endDate) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const expenseSheet = ss.getSheetByName('Расходы');
+  const incomeSheet = ss.getSheetByName('Доходы');
+
+  const transactions = [];
+  let totalIncome = 0;
+  let totalExpense = 0;
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  // Обработка доходов за период
+  if (incomeSheet && incomeSheet.getLastRow() > 1) {
+    const incomeData = incomeSheet.getRange(2, 1, incomeSheet.getLastRow() - 1, 7).getValues();
+    incomeData.forEach(row => {
+      if (String(row[4]) === chatId) {
+        const transactionDate = new Date(row[0]);
+        if (transactionDate >= start && transactionDate <= end) {
+          const transaction = {
+            id: `income_${Date.now()}_${Math.random()}`,
+            date: row[0].toISOString().split('T')[0],
+            category: getCategoryLabel(row[1], 'ru'),
+            amount: parseFloat(row[2]) || 0,
+            type: 'income',
+            comment: row[3] || ''
+          };
+          transactions.push(transaction);
+          totalIncome += transaction.amount;
+        }
+      }
+    });
+  }
+
+  // Обработка расходов за период
+  if (expenseSheet && expenseSheet.getLastRow() > 1) {
+    const expenseData = expenseSheet.getRange(2, 1, expenseSheet.getLastRow() - 1, 7).getValues();
+    expenseData.forEach(row => {
+      if (String(row[4]) === chatId) {
+        const transactionDate = new Date(row[0]);
+        if (transactionDate >= start && transactionDate <= end) {
+          const transaction = {
+            id: `expense_${Date.now()}_${Math.random()}`,
+            date: row[0].toISOString().split('T')[0],
+            category: getCategoryLabel(row[1], 'ru'),
+            amount: parseFloat(row[2]) || 0,
+            type: 'expense',
+            comment: row[3] || ''
+          };
+          transactions.push(transaction);
+          totalExpense += transaction.amount;
+        }
+      }
+    });
+  }
+
+  // Сортировка по дате
+  transactions.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+  return {
+    transactions: transactions,
+    totals: {
+      income: totalIncome,
+      expense: totalExpense,
+      balance: totalIncome - totalExpense
+    }
+  };
+}
+
+// Функция для генерации статистики по категориям
+function generateCategoryStats(chatId, period) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const expenseSheet = ss.getSheetByName('Расходы');
+  const incomeSheet = ss.getSheetByName('Доходы');
+
+  const categories = {};
+  let totalAmount = 0;
+
+  // Определяем период
+  const now = new Date();
+  let startDate, endDate;
+  
+  switch (period) {
+    case 'current_month':
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+      break;
+    case 'last_month':
+      startDate = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      endDate = new Date(now.getFullYear(), now.getMonth(), 0);
+      break;
+    case 'current_year':
+      startDate = new Date(now.getFullYear(), 0, 1);
+      endDate = new Date(now.getFullYear(), 11, 31);
+      break;
+    default:
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+  }
+
+  // Обработка доходов
+  if (incomeSheet && incomeSheet.getLastRow() > 1) {
+    const incomeData = incomeSheet.getRange(2, 1, incomeSheet.getLastRow() - 1, 7).getValues();
+    incomeData.forEach(row => {
+      if (String(row[4]) === chatId) {
+        const transactionDate = new Date(row[0]);
+        if (transactionDate >= startDate && transactionDate <= endDate) {
+          const category = getCategoryLabel(row[1], 'ru');
+          const amount = parseFloat(row[2]) || 0;
+          
+          if (!categories[category]) {
+            categories[category] = { amount: 0, count: 0 };
+          }
+          categories[category].amount += amount;
+          categories[category].count += 1;
+          totalAmount += amount;
+        }
+      }
+    });
+  }
+
+  // Обработка расходов
+  if (expenseSheet && expenseSheet.getLastRow() > 1) {
+    const expenseData = expenseSheet.getRange(2, 1, expenseSheet.getLastRow() - 1, 7).getValues();
+    expenseData.forEach(row => {
+      if (String(row[4]) === chatId) {
+        const transactionDate = new Date(row[0]);
+        if (transactionDate >= startDate && transactionDate <= endDate) {
+          const category = getCategoryLabel(row[1], 'ru');
+          const amount = parseFloat(row[2]) || 0;
+          
+          if (!categories[category]) {
+            categories[category] = { amount: 0, count: 0 };
+          }
+          categories[category].amount += amount;
+          categories[category].count += 1;
+          totalAmount += amount;
+        }
+      }
+    });
+  }
+
+  // Вычисление процентов
+  Object.keys(categories).forEach(category => {
+    const percentage = totalAmount > 0 ? (categories[category].amount / totalAmount) * 100 : 0;
+    categories[category].percentage = Math.round(percentage * 10) / 10;
+  });
+
+  return categories;
 }

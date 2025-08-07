@@ -3,22 +3,24 @@
 
 // Конфигурация API
 const API_CONFIG = {
-  baseUrl: 'https://your-api-domain.com/api',
-  token: 'YOUR_API_TOKEN',
+  baseUrl: 'https://script.google.com/macros/s/AKfycbxlJgV5nCrI-7niYpcXXucPfpkVAw0AL-7dk6TZ6S8JSmN1zq6ZoJK4Y4AW0yTlXs7FvaQ/exec',
+  token: '',
   timeout: 10000
 };
 
 // Получение данных пользователя из вашего бота
 async function fetchUserDataFromBot(chatId) {
   try {
-    const response = await fetch(`${API_CONFIG.baseUrl}/user/${chatId}/report`, {
-      method: 'GET',
+    const response = await fetch(`${API_CONFIG.baseUrl}`, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_CONFIG.token}`,
         'X-Requested-With': 'XMLHttpRequest'
       },
-      timeout: API_CONFIG.timeout
+      body: JSON.stringify({
+        action: 'getUserData',
+        chat_id: chatId
+      })
     });
 
     if (!response.ok) {
@@ -139,13 +141,14 @@ function formatDateForWeb(dateString) {
 // Получение данных за определенный период
 async function fetchPeriodData(chatId, startDate, endDate) {
   try {
-    const response = await fetch(`${API_CONFIG.baseUrl}/user/${chatId}/period`, {
+    const response = await fetch(`${API_CONFIG.baseUrl}`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_CONFIG.token}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        action: 'getPeriodData',
+        chat_id: chatId,
         startDate: startDate,
         endDate: endDate
       })
@@ -166,12 +169,16 @@ async function fetchPeriodData(chatId, startDate, endDate) {
 // Получение статистики по категориям
 async function fetchCategoryStats(chatId, period = 'current_month') {
   try {
-    const response = await fetch(`${API_CONFIG.baseUrl}/user/${chatId}/categories?period=${period}`, {
-      method: 'GET',
+    const response = await fetch(`${API_CONFIG.baseUrl}`, {
+      method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_CONFIG.token}`
-      }
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        action: 'getCategoryStats',
+        chat_id: chatId,
+        period: period
+      })
     });
 
     if (!response.ok) {
@@ -189,14 +196,14 @@ async function fetchCategoryStats(chatId, period = 'current_month') {
 // Экспорт данных в PDF
 async function exportToPDF(chatId, period = 'current_month') {
   try {
-    const response = await fetch(`${API_CONFIG.baseUrl}/user/${chatId}/export`, {
+    const response = await fetch(`${API_CONFIG.baseUrl}`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_CONFIG.token}`
+        'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        format: 'pdf',
+        action: 'exportToPDF',
+        chat_id: chatId,
         period: period,
         includeCharts: true
       })
@@ -224,12 +231,15 @@ async function exportToPDF(chatId, period = 'current_month') {
 // Проверка авторизации пользователя
 async function checkUserAuth(chatId) {
   try {
-    const response = await fetch(`${API_CONFIG.baseUrl}/user/${chatId}/auth`, {
-      method: 'GET',
+    const response = await fetch(`${API_CONFIG.baseUrl}`, {
+      method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${API_CONFIG.token}`
-      }
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        action: 'checkAuth',
+        chat_id: chatId
+      })
     });
 
     if (!response.ok) {

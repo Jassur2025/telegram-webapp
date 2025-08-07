@@ -157,14 +157,17 @@ async function fetchUserData(chatId) {
   console.log('🔗 API URL:', CONFIG.api.baseUrl);
   
   try {
-    const url = `${CONFIG.api.baseUrl}?chat_id=${chatId}`;
-    console.log('📡 Отправляем запрос к:', url);
+    console.log('📡 Отправляем POST запрос к:', CONFIG.api.baseUrl);
     
-    const response = await fetch(url, {
-      method: 'GET',
+    const response = await fetch(CONFIG.api.baseUrl, {
+      method: 'POST',
       headers: {
         'Content-Type': 'application/json'
-      }
+      },
+      body: JSON.stringify({
+        action: 'getUserData',
+        chat_id: chatId
+      })
     });
 
     console.log('📥 Получен ответ:', response.status, response.statusText);
