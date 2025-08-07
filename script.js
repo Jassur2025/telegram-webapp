@@ -796,7 +796,8 @@ function downloadReport() {
 // Открыть бота
 function openBot() {
   if (currentData.user) {
-    Telegram.WebApp.openTelegramLink(`https://t.me/your_bot_username?start=webapp_${currentData.user.id}`);
+    // Замените 'Personal_F_bot' на username вашего бота
+    Telegram.WebApp.openTelegramLink(`https://t.me/Personal_F_bot?start=webapp_${currentData.user.id}`);
   } else {
     Telegram.WebApp.showAlert('Не удалось определить пользователя');
   }
