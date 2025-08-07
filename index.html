@@ -14,6 +14,9 @@
   <div class="container">
     <header class="header">
       <h1>💰 Финансовый отчёт</h1>
+      <div class="user-info" id="userInfo">
+        <!-- Информация о пользователе -->
+      </div>
       <div class="balance-card">
         <div class="balance-item">
           <span class="balance-label">Доходы</span>
@@ -34,6 +37,8 @@
       <button class="tab-btn active" data-tab="transactions">Транзакции</button>
       <button class="tab-btn" data-tab="charts">Графики</button>
       <button class="tab-btn" data-tab="categories">Категории</button>
+      <button class="tab-btn" data-tab="goals">Цели</button>
+      <button class="tab-btn" data-tab="debts">Долги</button>
     </div>
 
     <div class="tab-content">
@@ -44,6 +49,7 @@
             <option value="current">Текущий месяц</option>
             <option value="last">Прошлый месяц</option>
             <option value="week">Неделя</option>
+            <option value="custom">Произвольный период</option>
           </select>
           <select id="typeFilter" class="filter-select">
             <option value="all">Все</option>
@@ -65,12 +71,29 @@
         <div class="chart-container">
           <canvas id="incomeChart"></canvas>
         </div>
+        <div class="chart-container">
+          <canvas id="trendChart"></canvas>
+        </div>
       </div>
 
       <!-- Категории -->
       <div class="tab-pane" id="categories">
         <div class="categories-grid" id="categoriesGrid">
           <!-- Категории будут загружены через JavaScript -->
+        </div>
+      </div>
+
+      <!-- Цели -->
+      <div class="tab-pane" id="goals">
+        <div class="goals-container" id="goalsContainer">
+          <!-- Цели будут загружены через JavaScript -->
+        </div>
+      </div>
+
+      <!-- Долги -->
+      <div class="tab-pane" id="debts">
+        <div class="debts-container" id="debtsContainer">
+          <!-- Долги будут загружены через JavaScript -->
         </div>
       </div>
     </div>
@@ -84,10 +107,29 @@
         <span class="btn-icon">📄</span>
         Скачать отчёт
       </button>
+      <button class="action-btn" onclick="openBot()">
+        <span class="btn-icon">🤖</span>
+        Открыть бота
+      </button>
       <button class="action-btn" onclick="Telegram.WebApp.close()">
         <span class="btn-icon">⬅️</span>
         Назад
       </button>
+    </div>
+  </div>
+
+  <!-- Модальные окна -->
+  <div class="modal" id="customPeriodModal">
+    <div class="modal-content">
+      <h3>Выберите период</h3>
+      <div class="date-inputs">
+        <input type="date" id="startDate" class="date-input">
+        <input type="date" id="endDate" class="date-input">
+      </div>
+      <div class="modal-actions">
+        <button onclick="applyCustomPeriod()">Применить</button>
+        <button onclick="closeModal()">Отмена</button>
+      </div>
     </div>
   </div>
 

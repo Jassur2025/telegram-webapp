@@ -2,12 +2,22 @@
 let currentData = {
   transactions: [],
   categories: {},
-  totals: { income: 0, expense: 0, balance: 0 }
+  totals: { income: 0, expense: 0, balance: 0 },
+  goals: [],
+  debts: [],
+  user: null
 };
 
 let charts = {
   expenseChart: null,
-  incomeChart: null
+  incomeChart: null,
+  trendChart: null
+};
+
+let currentPeriod = {
+  type: 'current',
+  startDate: null,
+  endDate: null
 };
 
 // Инициализация приложения
@@ -17,6 +27,9 @@ window.addEventListener('DOMContentLoaded', () => {
   
   // Настройка темы
   setupTheme();
+  
+  // Инициализация пользователя
+  initUser();
   
   // Инициализация вкладок
   initTabs();
@@ -37,6 +50,31 @@ function setupTheme() {
     Object.keys(themeParams).forEach(key => {
       root.style.setProperty(`--tg-theme-${key}`, themeParams[key]);
     });
+  }
+}
+
+// Инициализация пользователя
+function initUser() {
+  const user = Telegram.WebApp.initDataUnsafe?.user;
+  if (user) {
+    currentData.user = user;
+    updateUserInfo();
+  }
+}
+
+// Обновление информации о пользователе
+function updateUserInfo() {
+  const userInfo = document.getElementById('userInfo');
+  if (userInfo && currentData.user) {
+    userInfo.innerHTML = `
+      <div class="user-avatar">
+        ${currentData.user.first_name ? currentData.user.first_name.charAt(0).toUpperCase() : 'U'}
+      </div>
+      <div class="user-details">
+        <div class="user-name">${currentData.user.first_name || 'Пользователь'}</div>
+        <div class="user-id">ID: ${currentData.user.id}</div>
+      </div>
+    `;
   }
 }
 
@@ -69,7 +107,12 @@ function initFilters() {
   const typeFilter = document.getElementById('typeFilter');
   
   periodFilter.addEventListener('change', () => {
-    filterTransactions();
+    if (periodFilter.value === 'custom') {
+      showCustomPeriodModal();
+    } else {
+      currentPeriod.type = periodFilter.value;
+      filterTransactions();
+    }
   });
   
   typeFilter.addEventListener('change', () => {
@@ -86,14 +129,20 @@ async function loadData() {
     const user = Telegram.WebApp.initDataUnsafe?.user;
     const chatId = user?.id || 'demo';
     
-    // Загружаем данные (в реальном приложении здесь будет API запрос)
+    // Загружаем данные
     const data = await fetchUserData(chatId);
-    currentData = data;
+    currentData = { ...currentData, ...data };
+    
+    // Загружаем дополнительные данные
+    await loadGoals(chatId);
+    await loadDebts(chatId);
     
     // Обновляем интерфейс
     updateBalance();
     updateTransactions();
     updateCategories();
+    updateGoals();
+    updateDebts();
     updateCharts();
     
   } catch (error) {
@@ -148,63 +197,128 @@ async function fetchUserData(chatId) {
     
     // Возвращаем демо данные в случае ошибки
     console.log('🔄 Возвращаем демо данные');
-    return {
-      transactions: [
-        {
-          id: 1,
-          date: '2024-01-15',
-          category: 'Продукты',
-          amount: 25000,
-          type: 'expense',
-          comment: 'Magnum'
-        },
-        {
-          id: 2,
-          date: '2024-01-14',
-          category: 'Зарплата',
-          amount: 500000,
-          type: 'income',
-          comment: 'Зарплата за январь'
-        },
-        {
-          id: 3,
-          date: '2024-01-13',
-          category: 'Транспорт',
-          amount: 15000,
-          type: 'expense',
-          comment: 'Такси'
-        },
-        {
-          id: 4,
-          date: '2024-01-12',
-          category: 'Развлечения',
-          amount: 80000,
-          type: 'expense',
-          comment: 'Кино'
-        },
-        {
-          id: 5,
-          date: '2024-01-11',
-          category: 'Продажа',
-          amount: 150000,
-          type: 'income',
-          comment: 'Продажа вещей'
-        }
-      ],
-      categories: {
-        'Продукты': { amount: 25000, percentage: 20 },
-        'Транспорт': { amount: 15000, percentage: 12 },
-        'Развлечения': { amount: 80000, percentage: 64 },
-        'Зарплата': { amount: 500000, percentage: 100 },
-        'Продажа': { amount: 150000, percentage: 100 }
-      },
-      totals: {
-        income: 650000,
-        expense: 120000,
-        balance: 530000
-      }
-    };
+    return getDemoData();
   }
+}
+
+// Загрузка целей
+async function loadGoals(chatId) {
+  try {
+    // В реальном приложении здесь будет API запрос для целей
+    currentData.goals = [
+      {
+        id: 1,
+        name: 'Новый телефон',
+        target: 5000000,
+        current: 1500000,
+        deadline: '2024-12-31',
+        category: 'Техника'
+      },
+      {
+        id: 2,
+        name: 'Отпуск',
+        target: 2000000,
+        current: 800000,
+        deadline: '2024-06-30',
+        category: 'Путешествия'
+      }
+    ];
+  } catch (error) {
+    console.error('Ошибка загрузки целей:', error);
+    currentData.goals = [];
+  }
+}
+
+// Загрузка долгов
+async function loadDebts(chatId) {
+  try {
+    // В реальном приложении здесь будет API запрос для долгов
+    currentData.debts = [
+      {
+        id: 1,
+        type: 'debt',
+        counterparty: 'Али',
+        amount: 500000,
+        currency: 'UZS',
+        description: 'Взял в долг',
+        dueDate: '2024-02-15',
+        status: 'active'
+      },
+      {
+        id: 2,
+        type: 'credit',
+        counterparty: 'Мария',
+        amount: 300000,
+        currency: 'UZS',
+        description: 'Дал в долг',
+        dueDate: '2024-01-30',
+        status: 'active'
+      }
+    ];
+  } catch (error) {
+    console.error('Ошибка загрузки долгов:', error);
+    currentData.debts = [];
+  }
+}
+
+// Демо данные
+function getDemoData() {
+  return {
+    transactions: [
+      {
+        id: 1,
+        date: '2024-01-15',
+        category: 'Продукты',
+        amount: 25000,
+        type: 'expense',
+        comment: 'Magnum'
+      },
+      {
+        id: 2,
+        date: '2024-01-14',
+        category: 'Зарплата',
+        amount: 500000,
+        type: 'income',
+        comment: 'Зарплата за январь'
+      },
+      {
+        id: 3,
+        date: '2024-01-13',
+        category: 'Транспорт',
+        amount: 15000,
+        type: 'expense',
+        comment: 'Такси'
+      },
+      {
+        id: 4,
+        date: '2024-01-12',
+        category: 'Развлечения',
+        amount: 80000,
+        type: 'expense',
+        comment: 'Кино'
+      },
+      {
+        id: 5,
+        date: '2024-01-11',
+        category: 'Продажа',
+        amount: 150000,
+        type: 'income',
+        comment: 'Продажа вещей'
+      }
+    ],
+    categories: {
+      'Продукты': { amount: 25000, percentage: 20 },
+      'Транспорт': { amount: 15000, percentage: 12 },
+      'Развлечения': { amount: 80000, percentage: 64 },
+      'Зарплата': { amount: 500000, percentage: 100 },
+      'Продажа': { amount: 150000, percentage: 100 }
+    },
+    totals: {
+      income: 650000,
+      expense: 120000,
+      balance: 530000
+    }
+  };
 }
 
 // Обновление баланса
@@ -270,10 +384,93 @@ function updateCategories() {
   `).join('');
 }
 
+// Обновление целей
+function updateGoals() {
+  const container = document.getElementById('goalsContainer');
+  const goals = currentData.goals;
+  
+  if (goals.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">🎯</div>
+        <div class="empty-state-text">Нет целей</div>
+        <div class="empty-state-subtext">Создайте первую цель в боте</div>
+      </div>
+    `;
+    return;
+  }
+  
+  container.innerHTML = goals.map(goal => {
+    const progress = (goal.current / goal.target) * 100;
+    const daysLeft = Math.ceil((new Date(goal.deadline) - new Date()) / (1000 * 60 * 60 * 24));
+    
+    return `
+      <div class="goal-card">
+        <div class="goal-header">
+          <div class="goal-name">${goal.name}</div>
+          <div class="goal-category">${goal.category}</div>
+        </div>
+        <div class="goal-progress">
+          <div class="progress-bar">
+            <div class="progress-fill" style="width: ${progress}%"></div>
+          </div>
+          <div class="progress-text">${Math.round(progress)}%</div>
+        </div>
+        <div class="goal-details">
+          <div class="goal-amount">
+            ${formatMoney(goal.current)} / ${formatMoney(goal.target)} ₸
+          </div>
+          <div class="goal-deadline">
+            ${daysLeft > 0 ? `${daysLeft} дней` : 'Просрочено'}
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+// Обновление долгов
+function updateDebts() {
+  const container = document.getElementById('debtsContainer');
+  const debts = currentData.debts;
+  
+  if (debts.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">💸</div>
+        <div class="empty-state-text">Нет долгов</div>
+        <div class="empty-state-subtext">Управляйте долгами в боте</div>
+      </div>
+    `;
+    return;
+  }
+  
+  container.innerHTML = debts.map(debt => {
+    const daysLeft = Math.ceil((new Date(debt.dueDate) - new Date()) / (1000 * 60 * 60 * 24));
+    const isOverdue = daysLeft < 0;
+    
+    return `
+      <div class="debt-card ${isOverdue ? 'overdue' : ''}">
+        <div class="debt-header">
+          <div class="debt-type">${debt.type === 'debt' ? 'Долг' : 'Кредит'}</div>
+          <div class="debt-status ${debt.status}">${debt.status}</div>
+        </div>
+        <div class="debt-counterparty">${debt.counterparty}</div>
+        <div class="debt-amount">${formatMoney(debt.amount)} ${debt.currency}</div>
+        <div class="debt-description">${debt.description}</div>
+        <div class="debt-deadline ${isOverdue ? 'overdue' : ''}">
+          ${isOverdue ? 'Просрочено' : `${daysLeft} дней`}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
 // Обновление графиков
 function updateCharts() {
   updateExpenseChart();
   updateIncomeChart();
+  updateTrendChart();
 }
 
 // График расходов
@@ -287,7 +484,7 @@ function updateExpenseChart() {
   }
   
   const expenseCategories = Object.entries(currentData.categories)
-    .filter(([name, data]) => data.amount > 0)
+    .filter(([name, data]) => data.amount > 0 && !isIncomeCategory(name))
     .sort((a, b) => b[1].amount - a[1].amount);
   
   if (expenseCategories.length === 0) {
@@ -305,14 +502,7 @@ function updateExpenseChart() {
       labels: expenseCategories.map(([name]) => name),
       datasets: [{
         data: expenseCategories.map(([, data]) => data.amount),
-        backgroundColor: [
-          '#FF6384',
-          '#36A2EB',
-          '#FFCE56',
-          '#4BC0C0',
-          '#9966FF',
-          '#FF9F40'
-        ]
+        backgroundColor: CONFIG.charts.colors.expense
       }]
     },
     options: {
@@ -360,12 +550,7 @@ function updateIncomeChart() {
       labels: incomeCategories.map(([name]) => name),
       datasets: [{
         data: incomeCategories.map(([, data]) => data.amount),
-        backgroundColor: [
-          '#28a745',
-          '#20c997',
-          '#17a2b8',
-          '#6f42c1'
-        ]
+        backgroundColor: CONFIG.charts.colors.income
       }]
     },
     options: {
@@ -384,6 +569,85 @@ function updateIncomeChart() {
   });
 }
 
+// График трендов
+function updateTrendChart() {
+  const ctx = document.getElementById('trendChart');
+  if (!ctx) return;
+  
+  // Уничтожаем предыдущий график
+  if (charts.trendChart) {
+    charts.trendChart.destroy();
+  }
+  
+  // Группируем транзакции по дням
+  const dailyData = {};
+  currentData.transactions.forEach(transaction => {
+    const date = transaction.date;
+    if (!dailyData[date]) {
+      dailyData[date] = { income: 0, expense: 0 };
+    }
+    if (transaction.type === 'income') {
+      dailyData[date].income += transaction.amount;
+    } else {
+      dailyData[date].expense += transaction.amount;
+    }
+  });
+  
+  const dates = Object.keys(dailyData).sort();
+  const incomeData = dates.map(date => dailyData[date].income);
+  const expenseData = dates.map(date => dailyData[date].expense);
+  
+  if (dates.length === 0) {
+    ctx.parentElement.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-text">Нет данных для графика</div>
+      </div>
+    `;
+    return;
+  }
+  
+  charts.trendChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: dates.map(date => formatDate(date)),
+      datasets: [
+        {
+          label: 'Доходы',
+          data: incomeData,
+          borderColor: '#28a745',
+          backgroundColor: 'rgba(40, 167, 69, 0.1)',
+          tension: 0.4
+        },
+        {
+          label: 'Расходы',
+          data: expenseData,
+          borderColor: '#dc3545',
+          backgroundColor: 'rgba(220, 53, 69, 0.1)',
+          tension: 0.4
+        }
+      ]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: {
+          position: 'top'
+        },
+        title: {
+          display: true,
+          text: 'Тренд доходов и расходов'
+        }
+      },
+      scales: {
+        y: {
+          beginAtZero: true
+        }
+      }
+    }
+  });
+}
+
 // Обновление содержимого вкладки
 function updateTabContent(tabName) {
   switch (tabName) {
@@ -395,6 +659,12 @@ function updateTabContent(tabName) {
       break;
     case 'categories':
       updateCategories();
+      break;
+    case 'goals':
+      updateGoals();
+      break;
+    case 'debts':
+      updateDebts();
       break;
   }
 }
@@ -408,29 +678,37 @@ function filterTransactions() {
   
   // Фильтр по периоду
   if (periodFilter !== 'all') {
-    const now = new Date();
-    const currentMonth = now.getMonth();
-    const currentYear = now.getFullYear();
-    
-    filteredTransactions = filteredTransactions.filter(transaction => {
-      const transactionDate = new Date(transaction.date);
+    if (periodFilter === 'custom' && currentPeriod.startDate && currentPeriod.endDate) {
+      filteredTransactions = filteredTransactions.filter(transaction => {
+        const transactionDate = new Date(transaction.date);
+        return transactionDate >= currentPeriod.startDate && 
+               transactionDate <= currentPeriod.endDate;
+      });
+    } else {
+      const now = new Date();
+      const currentMonth = now.getMonth();
+      const currentYear = now.getFullYear();
       
-      switch (periodFilter) {
-        case 'current':
-          return transactionDate.getMonth() === currentMonth && 
-                 transactionDate.getFullYear() === currentYear;
-        case 'last':
-          const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
-          const lastYear = currentMonth === 0 ? currentYear - 1 : currentYear;
-          return transactionDate.getMonth() === lastMonth && 
-                 transactionDate.getFullYear() === lastYear;
-        case 'week':
-          const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-          return transactionDate >= weekAgo;
-        default:
-          return true;
-      }
-    });
+      filteredTransactions = filteredTransactions.filter(transaction => {
+        const transactionDate = new Date(transaction.date);
+        
+        switch (periodFilter) {
+          case 'current':
+            return transactionDate.getMonth() === currentMonth && 
+                   transactionDate.getFullYear() === currentYear;
+          case 'last':
+            const lastMonth = currentMonth === 0 ? 11 : currentMonth - 1;
+            const lastYear = currentMonth === 0 ? currentYear - 1 : currentYear;
+            return transactionDate.getMonth() === lastMonth && 
+                   transactionDate.getFullYear() === lastYear;
+          case 'week':
+            const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+            return transactionDate >= weekAgo;
+          default:
+            return true;
+        }
+      });
+    }
   }
   
   // Фильтр по типу
@@ -468,6 +746,42 @@ function filterTransactions() {
   `).join('');
 }
 
+// Показать модальное окно для произвольного периода
+function showCustomPeriodModal() {
+  const modal = document.getElementById('customPeriodModal');
+  modal.style.display = 'flex';
+  
+  // Устанавливаем значения по умолчанию
+  const today = new Date();
+  const lastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+  
+  document.getElementById('startDate').value = lastMonth.toISOString().split('T')[0];
+  document.getElementById('endDate').value = today.toISOString().split('T')[0];
+}
+
+// Применить произвольный период
+function applyCustomPeriod() {
+  const startDate = new Date(document.getElementById('startDate').value);
+  const endDate = new Date(document.getElementById('endDate').value);
+  
+  if (startDate && endDate && startDate <= endDate) {
+    currentPeriod.type = 'custom';
+    currentPeriod.startDate = startDate;
+    currentPeriod.endDate = endDate;
+    
+    closeModal();
+    filterTransactions();
+  } else {
+    Telegram.WebApp.showAlert('Пожалуйста, выберите корректный период');
+  }
+}
+
+// Закрыть модальное окно
+function closeModal() {
+  const modal = document.getElementById('customPeriodModal');
+  modal.style.display = 'none';
+}
+
 // Обновление данных
 function refreshData() {
   loadData();
@@ -477,6 +791,15 @@ function refreshData() {
 function downloadReport() {
   // В реальном приложении здесь будет генерация PDF
   Telegram.WebApp.showAlert('Функция скачивания отчета будет доступна в следующем обновлении');
+}
+
+// Открыть бота
+function openBot() {
+  if (currentData.user) {
+    Telegram.WebApp.openTelegramLink(`https://t.me/your_bot_username?start=webapp_${currentData.user.id}`);
+  } else {
+    Telegram.WebApp.showAlert('Не удалось определить пользователя');
+  }
 }
 
 // Вспомогательные функции
@@ -494,36 +817,15 @@ function formatDate(dateString) {
 }
 
 function getCategoryIcon(categoryName) {
-  const icons = {
-    'Продукты': '🛒',
-    'Транспорт': '🚗',
-    'Развлечения': '🎬',
-    'Зарплата': '💰',
-    'Продажа': '📦',
-    'Такси': '🚕',
-    'Одежда': '👕',
-    'Ресторан': '🍽️',
-    'Кино': '🎭',
-    'Спорт': '⚽',
-    'Здоровье': '🏥',
-    'Образование': '📚',
-    'Путешествия': '✈️',
-    'Подарки': '🎁',
-    'Комунальные': '🏠',
-    'Интернет': '🌐',
-    'Телефон': '📱'
-  };
-  
-  return icons[categoryName] || '📊';
+  return CONFIG.categories.icons[categoryName] || '📊';
 }
 
 function isIncomeCategory(categoryName) {
-  const incomeCategories = ['Зарплата', 'Продажа', 'Возврат', 'Кешбек', 'Доход'];
-  return incomeCategories.includes(categoryName);
+  return CONFIG.categories.incomeCategories.includes(categoryName);
 }
 
 function showLoading() {
-  const containers = ['transactionsList', 'categoriesGrid'];
+  const containers = ['transactionsList', 'categoriesGrid', 'goalsContainer', 'debtsContainer'];
   containers.forEach(id => {
     const container = document.getElementById(id);
     if (container) {
@@ -533,7 +835,7 @@ function showLoading() {
 }
 
 function showError(message) {
-  const containers = ['transactionsList', 'categoriesGrid'];
+  const containers = ['transactionsList', 'categoriesGrid', 'goalsContainer', 'debtsContainer'];
   containers.forEach(id => {
     const container = document.getElementById(id);
     if (container) {

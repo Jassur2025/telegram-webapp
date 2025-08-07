@@ -8,7 +8,7 @@ const CONFIG = {
   
   // Настройки API
   api: {
-    baseUrl: 'https://script.google.com/macros/s/AKfycbzCUWa55wgckX_DQ4guYnQXlk3FoQxJEjnhSpHjf_GdLThg_LG1-u3vPm8WmclglEBqmQ/exec',
+    baseUrl: 'https://script.google.com/macros/s/AKfycbzNkVZmJCLL6tfMtJkws621K7zFqrrOGXhmuF0aqEdhOyv03IveUCTZrZ8voSB_S7rokw/exec',
     token: '',
     timeout: 10000,
     retryAttempts: 3
